@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import { getApiUrl, apiRequest } from "@/lib/query-client";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { getApiUrl } from "@/lib/query-client";
 
 interface User {
   id: string;
@@ -16,6 +17,8 @@ interface AuthContextType {
   checkAuth: () => Promise<void>;
 }
 
+const AUTH_STORAGE_KEY = "@facesnap_auth_user";
+
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -24,12 +27,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const checkAuth = async () => {
     try {
-      const response = await fetch(new URL("/api/auth/me", getApiUrl()).toString(), {
-        credentials: "include",
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setUser(data.user);
+      const storedUser = await AsyncStorage.getItem(AUTH_STORAGE_KEY);
+      if (storedUser) {
+        const parsedUser = JSON.parse(storedUser);
+        setUser(parsedUser);
       } else {
         setUser(null);
       }
@@ -46,10 +47,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (email?: string) => {
     try {
-      const response = await apiRequest("POST", "/api/auth/dev-login", {
-        email: email || "user@example.com",
+      const response = await fetch(new URL("/api/auth/dev-login", getApiUrl()).toString(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email || "user@example.com" }),
       });
+      
+      if (!response.ok) {
+        throw new Error("Login failed");
+      }
+      
       const data = await response.json();
+      await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(data.user));
       setUser(data.user);
     } catch (error) {
       console.error("Login error:", error);
@@ -59,7 +68,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     try {
-      await apiRequest("POST", "/api/auth/logout");
+      await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
       setUser(null);
     } catch (error) {
       console.error("Logout error:", error);
@@ -88,4 +97,17 @@ export function useAuth() {
     throw new Error("useAuth must be used within an AuthProvider");
   }
   return context;
+}
+
+export async function getStoredUserId(): Promise<string | null> {
+  try {
+    const storedUser = await AsyncStorage.getItem(AUTH_STORAGE_KEY);
+    if (storedUser) {
+      const parsedUser = JSON.parse(storedUser);
+      return parsedUser.id;
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }

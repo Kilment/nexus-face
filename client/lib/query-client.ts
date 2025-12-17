@@ -1,9 +1,8 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-/**
- * Gets the base URL for the Express API server (e.g., "http://localhost:3000")
- * @returns {string} The API base URL
- */
+const AUTH_STORAGE_KEY = "@facesnap_auth_user";
+
 export function getApiUrl(): string {
   let host = process.env.EXPO_PUBLIC_DOMAIN;
 
@@ -14,6 +13,17 @@ export function getApiUrl(): string {
   let url = new URL(`https://${host}`);
 
   return url.href;
+}
+
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  try {
+    const storedUser = await AsyncStorage.getItem(AUTH_STORAGE_KEY);
+    if (storedUser) {
+      const parsedUser = JSON.parse(storedUser);
+      return { "X-User-Id": parsedUser.id };
+    }
+  } catch {}
+  return {};
 }
 
 async function throwIfResNotOk(res: Response) {
@@ -30,12 +40,15 @@ export async function apiRequest(
 ): Promise<Response> {
   const baseUrl = getApiUrl();
   const url = new URL(route, baseUrl);
+  const authHeaders = await getAuthHeaders();
 
   const res = await fetch(url, {
     method,
-    headers: data ? { "Content-Type": "application/json" } : {},
+    headers: {
+      ...(data ? { "Content-Type": "application/json" } : {}),
+      ...authHeaders,
+    },
     body: data ? JSON.stringify(data) : undefined,
-    credentials: "include",
   });
 
   await throwIfResNotOk(res);
@@ -50,9 +63,10 @@ export const getQueryFn: <T>(options: {
   async ({ queryKey }) => {
     const baseUrl = getApiUrl();
     const url = new URL(queryKey.join("/") as string, baseUrl);
+    const authHeaders = await getAuthHeaders();
 
     const res = await fetch(url, {
-      credentials: "include",
+      headers: authHeaders,
     });
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {

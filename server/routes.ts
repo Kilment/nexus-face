@@ -37,6 +37,11 @@ async function getReplitUserInfo(token: string): Promise<ReplitUserInfo | null> 
 }
 
 function requireAuth(req: Request, res: Response, next: NextFunction) {
+  const headerUserId = req.header("X-User-Id");
+  if (headerUserId) {
+    req.session.userId = headerUserId;
+  }
+  
   if (!req.session.userId) {
     return res.status(401).json({ error: "Unauthorized" });
   }
@@ -112,10 +117,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.get("/api/auth/me", async (req, res) => {
-    if (!req.session.userId) {
+    const headerUserId = req.header("X-User-Id");
+    const userId = headerUserId || req.session.userId;
+    
+    if (!userId) {
       return res.status(401).json({ error: "Not authenticated" });
     }
-    const user = await storage.getUser(req.session.userId);
+    const user = await storage.getUser(userId);
     if (!user) {
       return res.status(401).json({ error: "User not found" });
     }
