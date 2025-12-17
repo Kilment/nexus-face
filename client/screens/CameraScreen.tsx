@@ -41,7 +41,7 @@ export default function CameraScreen() {
     try {
       const photo = await cameraRef.current.takePictureAsync({
         base64: true,
-        quality: 0.8,
+        quality: 0.5,
       });
 
       if (photo?.base64) {
@@ -62,7 +62,7 @@ export default function CameraScreen() {
         mediaTypes: ["images"],
         allowsEditing: true,
         aspect: [1, 1],
-        quality: 0.8,
+        quality: 0.5,
         base64: true,
       });
 
@@ -174,74 +174,74 @@ export default function CameraScreen() {
         facing={facing}
         flash={flash ? "on" : "off"}
         enableTorch={flash}
+      />
+
+      {/* Top Controls - Absolute positioning */}
+      <View
+        style={[
+          styles.topControls,
+          { paddingTop: insets.top + Spacing.md },
+        ]}
       >
-        {/* Top Controls */}
-        <View
-          style={[
-            styles.topControls,
-            { paddingTop: insets.top + Spacing.md },
+        <Pressable
+          style={({ pressed }) => [
+            styles.topButton,
+            pressed && styles.buttonPressed,
           ]}
+          onPress={toggleFlash}
         >
-          <Pressable
-            style={({ pressed }) => [
-              styles.topButton,
-              pressed && styles.buttonPressed,
-            ]}
-            onPress={toggleFlash}
-          >
-            <Feather
-              name={flash ? "zap" : "zap-off"}
-              size={28}
-              color="#FFFFFF"
-            />
-          </Pressable>
+          <Feather
+            name={flash ? "zap" : "zap-off"}
+            size={28}
+            color="#FFFFFF"
+          />
+        </Pressable>
 
-          <Pressable
-            style={({ pressed }) => [
-              styles.topButton,
-              pressed && styles.buttonPressed,
-            ]}
-            onPress={toggleFacing}
-          >
-            <Feather name="rotate-cw" size={28} color="#FFFFFF" />
-          </Pressable>
-        </View>
-
-        {/* Bottom Controls - Snapchat Style */}
-        <View
-          style={[
-            styles.bottomControls,
-            { paddingBottom: tabBarHeight + Spacing.lg },
+        <Pressable
+          style={({ pressed }) => [
+            styles.topButton,
+            pressed && styles.buttonPressed,
           ]}
+          onPress={toggleFacing}
         >
-          {/* Gallery Button */}
-          <Pressable
-            style={({ pressed }) => [
-              styles.sideButton,
-              pressed && styles.buttonPressed,
-            ]}
-            onPress={pickImage}
-          >
-            <Feather name="image" size={32} color="#FFFFFF" />
-          </Pressable>
+          <Feather name="rotate-cw" size={28} color="#FFFFFF" />
+        </Pressable>
+      </View>
 
-          {/* Capture Button - Center */}
-          <Pressable
-            style={({ pressed }) => [
-              styles.captureButton,
-              pressed && styles.captureButtonPressed,
-              isCapturing && styles.captureButtonDisabled,
-            ]}
-            onPress={takePhoto}
-            disabled={isCapturing}
-          >
-            <View style={styles.captureButtonInner} />
-          </Pressable>
+      {/* Bottom Controls - Snapchat Style */}
+      <View
+        style={[
+          styles.bottomControls,
+          { paddingBottom: tabBarHeight + Spacing.lg },
+        ]}
+      >
+        {/* Gallery Button */}
+        <Pressable
+          style={({ pressed }) => [
+            styles.sideButton,
+            pressed && styles.buttonPressed,
+          ]}
+          onPress={pickImage}
+        >
+          <Feather name="image" size={32} color="#FFFFFF" />
+        </Pressable>
 
-          {/* Placeholder for symmetry */}
-          <View style={styles.sideButton} />
-        </View>
-      </CameraView>
+        {/* Capture Button - Center */}
+        <Pressable
+          style={({ pressed }) => [
+            styles.captureButton,
+            pressed && styles.captureButtonPressed,
+            isCapturing && styles.captureButtonDisabled,
+          ]}
+          onPress={takePhoto}
+          disabled={isCapturing}
+        >
+          <View style={styles.captureButtonInner} />
+        </Pressable>
+
+        {/* Placeholder for symmetry */}
+        <View style={styles.sideButton} />
+      </View>
     </View>
   );
 }
@@ -255,10 +255,15 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   topControls: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
     flexDirection: "row",
     justifyContent: "space-between",
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.md,
+    zIndex: 10,
   },
   topButton: {
     width: 50,
@@ -278,6 +283,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.md,
+    zIndex: 10,
   },
   sideButton: {
     width: 56,
