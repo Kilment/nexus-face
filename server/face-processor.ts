@@ -29,23 +29,39 @@ async function loadModels(): Promise<void> {
 }
 
 async function downloadModels(modelsPath: string): Promise<void> {
-  const baseUrl = "https://raw.githubusercontent.com/vladmandic/face-api/master/model/";
+  const baseUrl = "https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights/";
   const modelFiles = [
     "ssd_mobilenetv1_model-weights_manifest.json",
-    "ssd_mobilenetv1_model-shard1",
-    "ssd_mobilenetv1_model-shard2",
+    "ssd_mobilenetv1_model-shard1.shard.bin",
+    "ssd_mobilenetv1_model-shard2.shard.bin",
     "face_landmark_68_model-weights_manifest.json",
-    "face_landmark_68_model-shard1"
+    "face_landmark_68_model-shard1.shard.bin"
   ];
   
   for (const file of modelFiles) {
-    const response = await fetch(baseUrl + file);
-    if (!response.ok) {
-      throw new Error(`Failed to download model file: ${file}`);
+    try {
+      const response = await fetch(baseUrl + file);
+      if (!response.ok) {
+        console.log(`Failed to download ${file} from primary source, trying alternate...`);
+        const altUrl = `https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/${file.replace('.shard.bin', '')}`;
+        const altResponse = await fetch(altUrl);
+        if (!altResponse.ok) {
+          throw new Error(`Failed to download model file: ${file}`);
+        }
+        const buffer = await altResponse.arrayBuffer();
+        const saveAs = file.replace('.shard.bin', '');
+        fs.writeFileSync(path.join(modelsPath, saveAs), Buffer.from(buffer));
+        console.log(`Downloaded: ${saveAs}`);
+        continue;
+      }
+      const buffer = await response.arrayBuffer();
+      const saveAs = file.replace('.shard.bin', '');
+      fs.writeFileSync(path.join(modelsPath, saveAs), Buffer.from(buffer));
+      console.log(`Downloaded: ${saveAs}`);
+    } catch (error) {
+      console.error(`Error downloading ${file}:`, error);
+      throw error;
     }
-    const buffer = await response.arrayBuffer();
-    fs.writeFileSync(path.join(modelsPath, file), Buffer.from(buffer));
-    console.log(`Downloaded: ${file}`);
   }
 }
 
