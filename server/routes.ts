@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "node:http";
 import session from "express-session";
 import { storage } from "./storage";
-import { processImageForFaceAnonymization } from "./openai";
+import { processImageForFaceAnonymization } from "./face-processor";
 import { insertPhotoSchema } from "@shared/schema";
 
 declare module "express-session" {
