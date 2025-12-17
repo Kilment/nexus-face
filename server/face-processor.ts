@@ -1,10 +1,15 @@
 import * as faceapi from "@vladmandic/face-api";
 import * as tf from "@tensorflow/tfjs-node";
-import { Canvas, createCanvas, loadImage, Image } from "canvas";
+import { createCanvas, loadImage, Canvas, Image } from "canvas";
 import * as path from "path";
 import * as fs from "fs";
 
 let modelsLoaded = false;
+
+faceapi.env.monkeyPatch({
+  Canvas: Canvas as any,
+  Image: Image as any,
+});
 
 async function loadModels(): Promise<void> {
   if (modelsLoaded) return;
@@ -32,32 +37,21 @@ async function downloadModels(modelsPath: string): Promise<void> {
   const baseUrl = "https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights/";
   const modelFiles = [
     "ssd_mobilenetv1_model-weights_manifest.json",
-    "ssd_mobilenetv1_model-shard1.shard.bin",
-    "ssd_mobilenetv1_model-shard2.shard.bin",
+    "ssd_mobilenetv1_model-shard1",
+    "ssd_mobilenetv1_model-shard2",
     "face_landmark_68_model-weights_manifest.json",
-    "face_landmark_68_model-shard1.shard.bin"
+    "face_landmark_68_model-shard1"
   ];
   
   for (const file of modelFiles) {
     try {
       const response = await fetch(baseUrl + file);
       if (!response.ok) {
-        console.log(`Failed to download ${file} from primary source, trying alternate...`);
-        const altUrl = `https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/${file.replace('.shard.bin', '')}`;
-        const altResponse = await fetch(altUrl);
-        if (!altResponse.ok) {
-          throw new Error(`Failed to download model file: ${file}`);
-        }
-        const buffer = await altResponse.arrayBuffer();
-        const saveAs = file.replace('.shard.bin', '');
-        fs.writeFileSync(path.join(modelsPath, saveAs), Buffer.from(buffer));
-        console.log(`Downloaded: ${saveAs}`);
-        continue;
+        throw new Error(`Failed to download model file: ${file}`);
       }
       const buffer = await response.arrayBuffer();
-      const saveAs = file.replace('.shard.bin', '');
-      fs.writeFileSync(path.join(modelsPath, saveAs), Buffer.from(buffer));
-      console.log(`Downloaded: ${saveAs}`);
+      fs.writeFileSync(path.join(modelsPath, file), Buffer.from(buffer));
+      console.log(`Downloaded: ${file}`);
     } catch (error) {
       console.error(`Error downloading ${file}:`, error);
       throw error;
@@ -71,13 +65,24 @@ export async function processImageForFaceAnonymization(imageBase64: string): Pro
   const imageBuffer = Buffer.from(imageBase64, "base64");
   const img = await loadImage(imageBuffer);
   
-  const canvas = createCanvas(img.width, img.height) as unknown as HTMLCanvasElement;
-  const ctx = canvas.getContext("2d") as unknown as CanvasRenderingContext2D;
-  ctx.drawImage(img as unknown as CanvasImageSource, 0, 0);
+  const canvas = createCanvas(img.width, img.height);
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(img, 0, 0);
   
+  const inputTensor = tf.tidy(() => {
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    return tf.browser.fromPixels({
+      data: new Uint8Array(imgData.data),
+      width: canvas.width,
+      height: canvas.height
+    }, 3);
+  });
+
   const detection = await faceapi
-    .detectSingleFace(canvas)
+    .detectSingleFace(inputTensor as any)
     .withFaceLandmarks();
+  
+  inputTensor.dispose();
   
   if (!detection) {
     throw new Error("No face detected in the image");
@@ -144,68 +149,63 @@ export async function processImageForFaceAnonymization(imageBase64: string): Pro
   const leftTemple = { x: jawline[jawline.length - 1].x - leftX - paddingX * 0.3, y: jawline[jawline.length - 1].y - topY };
   faceOutline.push(leftTemple);
   
-  for (const p of leftBrowPoints) {
+  for (const p of leftBrowPoints.reverse()) {
     faceOutline.push({ x: p.x - leftX, y: p.y - topY });
   }
   
-  const offsetX = (outputSize - cropWidth) / 2;
-  const offsetY = (outputSize - cropHeight) / 2;
-  
   if (faceOutline.length > 0) {
-    outputCtx.moveTo(faceOutline[0].x + offsetX, faceOutline[0].y + offsetY);
+    outputCtx.moveTo(faceOutline[0].x, faceOutline[0].y);
     for (let i = 1; i < faceOutline.length; i++) {
-      outputCtx.lineTo(faceOutline[i].x + offsetX, faceOutline[i].y + offsetY);
+      outputCtx.lineTo(faceOutline[i].x, faceOutline[i].y);
     }
     outputCtx.closePath();
     outputCtx.clip();
   }
   
+  const offsetX = (outputSize - cropWidth) / 2;
+  const offsetY = (outputSize - cropHeight) / 2;
+  
   outputCtx.drawImage(
-    img as unknown as CanvasImageSource,
+    canvas,
     leftX, topY, cropWidth, cropHeight,
     offsetX, offsetY, cropWidth, cropHeight
   );
   
   outputCtx.restore();
   
+  const adjustedLeftEye = leftEye.map(p => ({
+    x: p.x - leftX + offsetX,
+    y: p.y - topY + offsetY
+  }));
+  const adjustedRightEye = rightEye.map(p => ({
+    x: p.x - leftX + offsetX,
+    y: p.y - topY + offsetY
+  }));
+  
   const leftEyeCenter = {
-    x: leftEye.reduce((sum, p) => sum + p.x, 0) / leftEye.length - leftX + offsetX,
-    y: leftEye.reduce((sum, p) => sum + p.y, 0) / leftEye.length - topY + offsetY
+    x: adjustedLeftEye.reduce((sum, p) => sum + p.x, 0) / adjustedLeftEye.length,
+    y: adjustedLeftEye.reduce((sum, p) => sum + p.y, 0) / adjustedLeftEye.length
   };
   const rightEyeCenter = {
-    x: rightEye.reduce((sum, p) => sum + p.x, 0) / rightEye.length - leftX + offsetX,
-    y: rightEye.reduce((sum, p) => sum + p.y, 0) / rightEye.length - topY + offsetY
+    x: adjustedRightEye.reduce((sum, p) => sum + p.x, 0) / adjustedRightEye.length,
+    y: adjustedRightEye.reduce((sum, p) => sum + p.y, 0) / adjustedRightEye.length
   };
   
-  const leftEyeWidth = Math.max(...leftEye.map(p => p.x)) - Math.min(...leftEye.map(p => p.x));
-  const leftEyeHeight = Math.max(...leftEye.map(p => p.y)) - Math.min(...leftEye.map(p => p.y));
-  const rightEyeWidth = Math.max(...rightEye.map(p => p.x)) - Math.min(...rightEye.map(p => p.x));
-  const rightEyeHeight = Math.max(...rightEye.map(p => p.y)) - Math.min(...rightEye.map(p => p.y));
-  
-  const eyeScaleFactor = 1.3;
-  
-  outputCtx.fillStyle = "black";
-  
-  outputCtx.beginPath();
-  outputCtx.ellipse(
-    leftEyeCenter.x,
-    leftEyeCenter.y,
-    (leftEyeWidth / 2) * eyeScaleFactor,
-    (leftEyeHeight / 2) * eyeScaleFactor * 1.2,
-    0, 0, Math.PI * 2
+  const eyeDistance = Math.sqrt(
+    Math.pow(rightEyeCenter.x - leftEyeCenter.x, 2) +
+    Math.pow(rightEyeCenter.y - leftEyeCenter.y, 2)
   );
+  const dotRadius = eyeDistance * 0.12;
+  
+  outputCtx.fillStyle = "#000000";
+  outputCtx.beginPath();
+  outputCtx.arc(leftEyeCenter.x, leftEyeCenter.y, dotRadius, 0, Math.PI * 2);
   outputCtx.fill();
   
   outputCtx.beginPath();
-  outputCtx.ellipse(
-    rightEyeCenter.x,
-    rightEyeCenter.y,
-    (rightEyeWidth / 2) * eyeScaleFactor,
-    (rightEyeHeight / 2) * eyeScaleFactor * 1.2,
-    0, 0, Math.PI * 2
-  );
+  outputCtx.arc(rightEyeCenter.x, rightEyeCenter.y, dotRadius, 0, Math.PI * 2);
   outputCtx.fill();
   
-  const resultBuffer = outputCanvas.toBuffer("image/png");
-  return resultBuffer.toString("base64");
+  const pngBuffer = outputCanvas.toBuffer("image/png");
+  return pngBuffer.toString("base64");
 }
