@@ -1,5 +1,5 @@
-import React from "react";
-import { View, StyleSheet, Pressable, Platform } from "react-native";
+import React, { useState } from "react";
+import { View, StyleSheet, Pressable, Platform, Alert, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { Feather } from "@expo/vector-icons";
@@ -11,8 +11,20 @@ import { useAuth } from "@/lib/auth-context";
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
-  const { theme, isDark } = useTheme();
+  const { theme } = useTheme();
   const { login } = useAuth();
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleLogin = async () => {
+    setIsLoading(true);
+    try {
+      await login();
+    } catch (error) {
+      Alert.alert("Login Failed", "Unable to sign in. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
     <ThemedView style={styles.container}>
@@ -43,15 +55,23 @@ export default function LoginScreen() {
               styles.signInButton,
               { backgroundColor: theme.tabIconSelected },
               pressed && styles.buttonPressed,
+              isLoading && styles.buttonDisabled,
             ]}
-            onPress={login}
+            onPress={handleLogin}
+            disabled={isLoading}
           >
-            <Feather name="log-in" size={20} color="#FFFFFF" />
-            <ThemedText style={styles.buttonText}>Sign in with Replit</ThemedText>
+            {isLoading ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <>
+                <Feather name="log-in" size={20} color="#FFFFFF" />
+                <ThemedText style={styles.buttonText}>Get Started</ThemedText>
+              </>
+            )}
           </Pressable>
 
           <ThemedText style={[styles.termsText, { color: theme.textTertiary }]}>
-            By signing in, you agree to our Terms of Service and Privacy Policy
+            Sign in to start organizing your photos with anonymized face processing
           </ThemedText>
         </View>
       </View>
@@ -102,6 +122,9 @@ const styles = StyleSheet.create({
   },
   buttonPressed: {
     opacity: 0.7,
+  },
+  buttonDisabled: {
+    opacity: 0.6,
   },
   buttonText: {
     ...Typography.button,

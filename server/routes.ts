@@ -57,6 +57,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     })
   );
 
+  // Development login endpoint - for testing without Replit Auth
+  app.post("/api/auth/dev-login", async (req, res) => {
+    try {
+      const { email } = req.body;
+      if (!email) {
+        return res.status(400).json({ error: "Email required" });
+      }
+
+      let user = await storage.getUserByReplitId(email);
+      if (!user) {
+        user = await storage.createUser({
+          replitId: email,
+          username: email.split("@")[0],
+          profileImageUrl: null,
+        });
+      }
+
+      req.session.userId = user.id;
+      res.json({ user });
+    } catch (error) {
+      console.error("Dev login error:", error);
+      res.status(500).json({ error: "Login failed" });
+    }
+  });
+
   app.post("/api/auth/replit", async (req, res) => {
     try {
       const { token } = req.body;

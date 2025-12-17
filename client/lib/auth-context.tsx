@@ -1,6 +1,4 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import * as WebBrowser from "expo-web-browser";
-import { Platform } from "react-native";
 import { getApiUrl, apiRequest } from "@/lib/query-client";
 
 interface User {
@@ -13,7 +11,7 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  login: () => Promise<void>;
+  login: (email?: string) => Promise<void>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
 }
@@ -46,31 +44,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     checkAuth();
   }, []);
 
-  const login = async () => {
+  const login = async (email?: string) => {
     try {
-      const baseUrl = getApiUrl();
-      const authUrl = `https://replit.com/auth_with_repl_site?domain=${encodeURIComponent(baseUrl.replace("https://", "").replace("http://", ""))}`;
-      
-      if (Platform.OS === "web") {
-        window.location.href = authUrl;
-      } else {
-        const result = await WebBrowser.openAuthSessionAsync(
-          authUrl,
-          "facesnap://auth"
-        );
-        
-        if (result.type === "success" && result.url) {
-          const url = new URL(result.url);
-          const token = url.searchParams.get("token");
-          if (token) {
-            const response = await apiRequest("POST", "/api/auth/replit", { token });
-            const data = await response.json();
-            setUser(data.user);
-          }
-        }
-      }
+      const response = await apiRequest("POST", "/api/auth/dev-login", {
+        email: email || "user@example.com",
+      });
+      const data = await response.json();
+      setUser(data.user);
     } catch (error) {
       console.error("Login error:", error);
+      throw error;
     }
   };
 
