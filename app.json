@@ -1,25 +1,33 @@
 {
   "expo": {
-    "name": "my-app",
-    "slug": "my-app",
+    "name": "FaceSnap",
+    "slug": "facesnap",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "myapp",
+    "scheme": "facesnap",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.facesnap.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "FaceSnap needs camera access to capture photos for face processing.",
+        "NSPhotoLibraryUsageDescription": "FaceSnap needs photo library access to upload images for processing."
+      }
     },
     "android": {
+      "package": "com.facesnap.app",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "foregroundImage": "./assets/images/icon.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE"
+      ]
     },
     "web": {
       "output": "single",
@@ -38,7 +46,19 @@
           }
         }
       ],
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "FaceSnap needs camera access to capture photos for face processing."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "FaceSnap needs photo library access to upload images for processing."
+        }
+      ]
     ],
     "experiments": {
       "reactCompiler": true

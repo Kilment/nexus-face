@@ -3,12 +3,14 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Feather } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { Platform, StyleSheet } from "react-native";
-import HomeStackNavigator from "@/navigation/HomeStackNavigator";
+import GalleryStackNavigator from "@/navigation/GalleryStackNavigator";
+import CameraStackNavigator from "@/navigation/CameraStackNavigator";
 import ProfileStackNavigator from "@/navigation/ProfileStackNavigator";
 import { useTheme } from "@/hooks/useTheme";
 
 export type MainTabParamList = {
-  HomeTab: undefined;
+  GalleryTab: undefined;
+  CameraTab: undefined;
   ProfileTab: undefined;
 };
 
@@ -19,7 +21,7 @@ export default function MainTabNavigator() {
 
   return (
     <Tab.Navigator
-      initialRouteName="HomeTab"
+      initialRouteName="CameraTab"
       screenOptions={{
         tabBarActiveTintColor: theme.tabIconSelected,
         tabBarInactiveTintColor: theme.tabIconDefault,
@@ -44,12 +46,22 @@ export default function MainTabNavigator() {
       }}
     >
       <Tab.Screen
-        name="HomeTab"
-        component={HomeStackNavigator}
+        name="GalleryTab"
+        component={GalleryStackNavigator}
         options={{
-          title: "Home",
+          title: "Gallery",
           tabBarIcon: ({ color, size }) => (
-            <Feather name="home" size={size} color={color} />
+            <Feather name="grid" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="CameraTab"
+        component={CameraStackNavigator}
+        options={{
+          title: "Camera",
+          tabBarIcon: ({ color, size }) => (
+            <Feather name="camera" size={size} color={color} />
           ),
         }}
       />

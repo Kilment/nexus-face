@@ -5,39 +5,53 @@ const tintColorDark = "#0A84FF";
 
 export const Colors = {
   light: {
-    text: "#11181C",
+    text: "#000000",
+    textSecondary: "#8E8E93",
+    textTertiary: "#C7C7CC",
     buttonText: "#FFFFFF",
     tabIconDefault: "#687076",
     tabIconSelected: tintColorLight,
     link: "#007AFF",
-    backgroundRoot: "#FFFFFF", // Elevation 0
-    backgroundDefault: "#F2F2F2", // Elevation 1
-    backgroundSecondary: "#E6E6E6", // Elevation 2
-    backgroundTertiary: "#D9D9D9", // Elevation 3
+    backgroundRoot: "#FFFFFF",
+    backgroundDefault: "#F5F5F5",
+    backgroundSecondary: "#E5E5EA",
+    backgroundTertiary: "#D9D9D9",
+    success: "#34C759",
+    warning: "#5AC8FA",
+    error: "#FF3B30",
+    border: "#E5E5EA",
+    cardBackground: "#F9F9F9",
   },
   dark: {
-    text: "#ECEDEE",
+    text: "#FFFFFF",
+    textSecondary: "#8E8E93",
+    textTertiary: "#636366",
     buttonText: "#FFFFFF",
     tabIconDefault: "#9BA1A6",
     tabIconSelected: tintColorDark,
     link: "#0A84FF",
-    backgroundRoot: "#1F2123", // Elevation 0
-    backgroundDefault: "#2A2C2E", // Elevation 1
-    backgroundSecondary: "#353739", // Elevation 2
-    backgroundTertiary: "#404244", // Elevation 3
+    backgroundRoot: "#000000",
+    backgroundDefault: "#1C1C1E",
+    backgroundSecondary: "#2C2C2E",
+    backgroundTertiary: "#3A3A3C",
+    success: "#30D158",
+    warning: "#64D2FF",
+    error: "#FF453A",
+    border: "#38383A",
+    cardBackground: "#2C2C2E",
   },
 };
 
 export const Spacing = {
   xs: 4,
   sm: 8,
-  md: 12,
-  lg: 16,
-  xl: 20,
-  "2xl": 24,
-  "3xl": 32,
-  "4xl": 40,
-  "5xl": 48,
+  md: 16,
+  lg: 24,
+  xl: 32,
+  "2xl": 40,
+  "3xl": 48,
+  "4xl": 56,
+  "5xl": 64,
   inputHeight: 48,
   buttonHeight: 52,
 };
@@ -55,51 +69,44 @@ export const BorderRadius = {
 
 export const Typography = {
   h1: {
-    fontSize: 32,
-    lineHeight: 40,
+    fontSize: 28,
     fontWeight: "700" as const,
   },
   h2: {
-    fontSize: 28,
-    lineHeight: 36,
+    fontSize: 24,
     fontWeight: "700" as const,
   },
   h3: {
-    fontSize: 24,
-    lineHeight: 32,
+    fontSize: 20,
     fontWeight: "600" as const,
   },
   h4: {
-    fontSize: 20,
-    lineHeight: 28,
+    fontSize: 17,
     fontWeight: "600" as const,
   },
   body: {
-    fontSize: 16,
-    lineHeight: 24,
+    fontSize: 15,
     fontWeight: "400" as const,
   },
   small: {
-    fontSize: 14,
-    lineHeight: 20,
+    fontSize: 12,
     fontWeight: "400" as const,
   },
-  link: {
+  button: {
     fontSize: 16,
-    lineHeight: 24,
+    fontWeight: "600" as const,
+  },
+  link: {
+    fontSize: 15,
     fontWeight: "400" as const,
   },
 };
 
 export const Fonts = Platform.select({
   ios: {
-    /** iOS `UIFontDescriptorSystemDesignDefault` */
     sans: "system-ui",
-    /** iOS `UIFontDescriptorSystemDesignSerif` */
     serif: "ui-serif",
-    /** iOS `UIFontDescriptorSystemDesignRounded` */
     rounded: "ui-rounded",
-    /** iOS `UIFontDescriptorSystemDesignMonospaced` */
     mono: "ui-monospace",
   },
   default: {
