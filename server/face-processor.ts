@@ -96,7 +96,6 @@ export async function processImageForFaceAnonymization(imageBase64: string): Pro
   const rightEyebrow = landmarks.getRightEyeBrow();
   const leftEye = landmarks.getLeftEye();
   const rightEye = landmarks.getRightEye();
-  const nose = landmarks.getNose();
   
   const faceWidth = box.width;
   const faceHeight = box.height;
@@ -105,24 +104,25 @@ export async function processImageForFaceAnonymization(imageBase64: string): Pro
   const jawBottom = Math.max(...jawline.map(p => p.y));
   const eyebrowTop = Math.min(...leftEyebrow.map(p => p.y), ...rightEyebrow.map(p => p.y));
   
-  const foreheadHeight = faceHeight * 0.35;
+  const foreheadHeight = faceHeight * 0.4;
   const headTop = eyebrowTop - foreheadHeight;
   
-  const neckLength = faceHeight * 0.25;
+  const neckLength = faceHeight * 0.3;
   const neckBottom = jawBottom + neckLength;
   
-  const outputPadding = faceWidth * 0.15;
-  const outputWidth = faceWidth + outputPadding * 2;
+  const outputPadding = faceWidth * 0.1;
   const totalHeight = neckBottom - headTop;
-  const outputHeight = totalHeight + outputPadding * 2;
   
+  const outputWidth = faceWidth + outputPadding * 2;
+  const outputHeight = totalHeight + outputPadding * 2;
   const outputSize = Math.max(outputWidth, outputHeight);
+  
   const outputCanvas = createCanvas(outputSize, outputSize);
   const outputCtx = outputCanvas.getContext("2d");
   
   outputCtx.clearRect(0, 0, outputSize, outputSize);
   
-  const offsetX = (outputSize - faceWidth) / 2 - (box.x);
+  const offsetX = (outputSize - faceWidth) / 2 - box.x;
   const offsetY = (outputSize - totalHeight) / 2 - headTop;
   
   outputCtx.save();
@@ -133,51 +133,66 @@ export async function processImageForFaceAnonymization(imageBase64: string): Pro
     y: p.y + offsetY
   }));
   
-  const leftTemple = { 
-    x: adjustedJawline[0].x, 
-    y: adjustedJawline[0].y - faceHeight * 0.15 
-  };
-  const rightTemple = { 
-    x: adjustedJawline[adjustedJawline.length - 1].x, 
-    y: adjustedJawline[adjustedJawline.length - 1].y - faceHeight * 0.15 
-  };
-  
   const headCenterX = faceCenterX + offsetX;
   const headTopY = headTop + offsetY;
   const adjustedNeckBottom = neckBottom + offsetY;
   
-  const chinPoint = adjustedJawline[Math.floor(adjustedJawline.length / 2)];
-  const neckWidth = faceWidth * 0.35;
+  const chinIndex = Math.floor(adjustedJawline.length / 2);
+  const chinPoint = adjustedJawline[chinIndex];
+  
+  const neckWidth = faceWidth * 0.4;
   const neckLeft = { x: chinPoint.x - neckWidth / 2, y: adjustedNeckBottom };
   const neckRight = { x: chinPoint.x + neckWidth / 2, y: adjustedNeckBottom };
   
+  const leftJawEnd = adjustedJawline[0];
+  const rightJawEnd = adjustedJawline[adjustedJawline.length - 1];
+  
   outputCtx.moveTo(neckLeft.x, neckLeft.y);
   
-  outputCtx.bezierCurveTo(
-    neckLeft.x, adjustedJawline[0].y,
-    adjustedJawline[0].x - faceWidth * 0.05, adjustedJawline[0].y,
-    adjustedJawline[0].x, adjustedJawline[0].y
-  );
+  const leftNeckJoin = { 
+    x: (neckLeft.x + leftJawEnd.x) / 2 - faceWidth * 0.05,
+    y: (neckLeft.y + leftJawEnd.y) / 2 
+  };
+  outputCtx.quadraticCurveTo(leftNeckJoin.x, leftNeckJoin.y, leftJawEnd.x, leftJawEnd.y);
+  
+  for (let i = 1; i <= chinIndex; i++) {
+    outputCtx.lineTo(adjustedJawline[i].x, adjustedJawline[i].y);
+  }
+  
+  for (let i = chinIndex; i < adjustedJawline.length; i++) {
+    outputCtx.lineTo(adjustedJawline[i].x, adjustedJawline[i].y);
+  }
+  
+  const rightNeckJoin = { 
+    x: (neckRight.x + rightJawEnd.x) / 2 + faceWidth * 0.05,
+    y: (neckRight.y + rightJawEnd.y) / 2 
+  };
+  outputCtx.quadraticCurveTo(rightNeckJoin.x, rightNeckJoin.y, neckRight.x, neckRight.y);
+  
+  outputCtx.lineTo(neckRight.x, neckRight.y);
+  
+  const rightTemple = { 
+    x: rightJawEnd.x + faceWidth * 0.05, 
+    y: rightJawEnd.y - faceHeight * 0.25 
+  };
+  const leftTemple = { 
+    x: leftJawEnd.x - faceWidth * 0.05, 
+    y: leftJawEnd.y - faceHeight * 0.25 
+  };
+  
+  outputCtx.moveTo(leftJawEnd.x, leftJawEnd.y);
   
   outputCtx.bezierCurveTo(
-    leftTemple.x - faceWidth * 0.1, leftTemple.y - faceHeight * 0.2,
-    headCenterX - faceWidth * 0.45, headTopY + faceHeight * 0.1,
+    leftTemple.x, leftTemple.y,
+    headCenterX - faceWidth * 0.5, headTopY + faceHeight * 0.15,
     headCenterX, headTopY
   );
   
   outputCtx.bezierCurveTo(
-    headCenterX + faceWidth * 0.45, headTopY + faceHeight * 0.1,
-    rightTemple.x + faceWidth * 0.1, rightTemple.y - faceHeight * 0.2,
-    adjustedJawline[adjustedJawline.length - 1].x, adjustedJawline[adjustedJawline.length - 1].y
+    headCenterX + faceWidth * 0.5, headTopY + faceHeight * 0.15,
+    rightTemple.x, rightTemple.y,
+    rightJawEnd.x, rightJawEnd.y
   );
-  
-  outputCtx.bezierCurveTo(
-    adjustedJawline[adjustedJawline.length - 1].x + faceWidth * 0.05, adjustedJawline[adjustedJawline.length - 1].y,
-    neckRight.x, adjustedJawline[adjustedJawline.length - 1].y,
-    neckRight.x, neckRight.y
-  );
-  
-  outputCtx.lineTo(neckLeft.x, neckLeft.y);
   
   outputCtx.closePath();
   outputCtx.clip();
@@ -200,13 +215,8 @@ export async function processImageForFaceAnonymization(imageBase64: string): Pro
     Math.pow(rightEyeCenter.y - leftEyeCenter.y, 2)
   );
   
-  const leftEyeWidth = Math.max(...leftEye.map(p => p.x)) - Math.min(...leftEye.map(p => p.x));
-  const leftEyeHeight = Math.max(...leftEye.map(p => p.y)) - Math.min(...leftEye.map(p => p.y));
-  const rightEyeWidth = Math.max(...rightEye.map(p => p.x)) - Math.min(...rightEye.map(p => p.x));
-  const rightEyeHeight = Math.max(...rightEye.map(p => p.y)) - Math.min(...rightEye.map(p => p.y));
-  
   const dotRadiusX = eyeDistance * 0.18;
-  const dotRadiusY = dotRadiusX * 0.7;
+  const dotRadiusY = dotRadiusX * 0.75;
   
   outputCtx.fillStyle = "#000000";
   
