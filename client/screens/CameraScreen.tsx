@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { View, StyleSheet, Pressable, Platform, Alert } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -22,6 +22,7 @@ export default function CameraScreen() {
   const navigation = useNavigation<NavigationProp>();
   const [facing, setFacing] = useState<CameraType>("front");
   const [flash, setFlash] = useState(false);
+  const [isCapturing, setIsCapturing] = useState(false);
   const cameraRef = useRef<CameraView>(null);
   const [permission, requestPermission] = useCameraPermissions();
 
@@ -34,8 +35,9 @@ export default function CameraScreen() {
   };
 
   const takePhoto = async () => {
-    if (!cameraRef.current) return;
+    if (!cameraRef.current || isCapturing) return;
 
+    setIsCapturing(true);
     try {
       const photo = await cameraRef.current.takePictureAsync({
         base64: true,
@@ -43,11 +45,14 @@ export default function CameraScreen() {
       });
 
       if (photo?.base64) {
+        // Navigate to Processing with the captured image
         navigation.navigate("Processing", { imageBase64: photo.base64 });
       }
     } catch (error) {
       console.error("Error taking photo:", error);
-      Alert.alert("Error", "Failed to take photo. Please try again.");
+      Alert.alert("Error", "Failed to capture photo. Please try again.");
+    } finally {
+      setIsCapturing(false);
     }
   };
 
@@ -95,7 +100,7 @@ export default function CameraScreen() {
           <Feather name="camera-off" size={64} color={theme.textSecondary} />
           <ThemedText style={styles.permissionTitle}>Camera Access Required</ThemedText>
           <ThemedText style={[styles.permissionText, { color: theme.textSecondary }]}>
-            FaceSnap needs camera access to capture photos for face processing.
+            FaceSnap needs camera access to capture and process photos.
           </ThemedText>
           <Pressable
             style={({ pressed }) => [
@@ -138,9 +143,9 @@ export default function CameraScreen() {
           ]}
         >
           <Feather name="smartphone" size={64} color={theme.textSecondary} />
-          <ThemedText style={styles.permissionTitle}>Use Expo Go</ThemedText>
+          <ThemedText style={styles.permissionTitle}>Run in Expo Go</ThemedText>
           <ThemedText style={[styles.permissionText, { color: theme.textSecondary }]}>
-            Camera capture works best in the Expo Go app. Scan the QR code to open on your device.
+            Camera works best in the Expo Go app. Scan the QR code to open on your device.
           </ThemedText>
           <Pressable
             style={({ pressed }) => [
@@ -160,6 +165,7 @@ export default function CameraScreen() {
     );
   }
 
+  // Snapchat-like camera interface
   return (
     <View style={styles.container}>
       <CameraView
@@ -167,7 +173,9 @@ export default function CameraScreen() {
         style={styles.camera}
         facing={facing}
         flash={flash ? "on" : "off"}
+        enableTorch={flash}
       >
+        {/* Top Controls */}
         <View
           style={[
             styles.topControls,
@@ -176,34 +184,37 @@ export default function CameraScreen() {
         >
           <Pressable
             style={({ pressed }) => [
-              styles.controlButton,
+              styles.topButton,
               pressed && styles.buttonPressed,
             ]}
             onPress={toggleFlash}
           >
             <Feather
               name={flash ? "zap" : "zap-off"}
-              size={24}
+              size={28}
               color="#FFFFFF"
             />
           </Pressable>
+
           <Pressable
             style={({ pressed }) => [
-              styles.controlButton,
+              styles.topButton,
               pressed && styles.buttonPressed,
             ]}
             onPress={toggleFacing}
           >
-            <Feather name="refresh-cw" size={24} color="#FFFFFF" />
+            <Feather name="rotate-cw" size={28} color="#FFFFFF" />
           </Pressable>
         </View>
 
+        {/* Bottom Controls - Snapchat Style */}
         <View
           style={[
             styles.bottomControls,
-            { paddingBottom: tabBarHeight + Spacing.xl },
+            { paddingBottom: tabBarHeight + Spacing.lg },
           ]}
         >
+          {/* Gallery Button */}
           <Pressable
             style={({ pressed }) => [
               styles.sideButton,
@@ -211,19 +222,23 @@ export default function CameraScreen() {
             ]}
             onPress={pickImage}
           >
-            <Feather name="image" size={28} color="#FFFFFF" />
+            <Feather name="image" size={32} color="#FFFFFF" />
           </Pressable>
 
+          {/* Capture Button - Center */}
           <Pressable
             style={({ pressed }) => [
               styles.captureButton,
               pressed && styles.captureButtonPressed,
+              isCapturing && styles.captureButtonDisabled,
             ]}
             onPress={takePhoto}
+            disabled={isCapturing}
           >
             <View style={styles.captureButtonInner} />
           </Pressable>
 
+          {/* Placeholder for symmetry */}
           <View style={styles.sideButton} />
         </View>
       </CameraView>
@@ -243,6 +258,15 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+  },
+  topButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: "rgba(0, 0, 0, 0.4)",
+    justifyContent: "center",
+    alignItems: "center",
   },
   bottomControls: {
     position: "absolute",
@@ -252,49 +276,40 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-around",
     alignItems: "center",
-    paddingHorizontal: Spacing.xl,
-  },
-  controlButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "rgba(0,0,0,0.3)",
-    justifyContent: "center",
-    alignItems: "center",
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
   },
   sideButton: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: "rgba(0,0,0,0.3)",
+    width: 56,
+    height: 56,
+    borderRadius: 28,
     justifyContent: "center",
     alignItems: "center",
   },
   captureButton: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     backgroundColor: "#FFFFFF",
-    borderWidth: 4,
-    borderColor: "#000000",
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
+    borderWidth: 3,
+    borderColor: "rgba(255, 255, 255, 0.3)",
   },
   captureButtonPressed: {
-    transform: [{ scale: 0.95 }],
+    transform: [{ scale: 0.9 }],
+  },
+  captureButtonDisabled: {
+    opacity: 0.6,
   },
   captureButtonInner: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 65,
+    height: 65,
+    borderRadius: 32.5,
     backgroundColor: "#FFFFFF",
   },
   buttonPressed: {
-    opacity: 0.7,
+    opacity: 0.6,
   },
   permissionContainer: {
     flex: 1,
@@ -304,15 +319,16 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
   },
   permissionTitle: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: "600",
     marginTop: Spacing.lg,
     textAlign: "center",
   },
   permissionText: {
-    fontSize: 15,
+    fontSize: 16,
     textAlign: "center",
     marginBottom: Spacing.lg,
+    lineHeight: 24,
   },
   permissionButton: {
     height: 52,
@@ -320,6 +336,7 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.sm,
     justifyContent: "center",
     alignItems: "center",
+    minWidth: 200,
   },
   permissionButtonText: {
     fontSize: 16,
@@ -331,11 +348,12 @@ const styles = StyleSheet.create({
     height: 52,
     paddingHorizontal: Spacing.xl,
     borderRadius: BorderRadius.sm,
-    borderWidth: 1,
+    borderWidth: 2,
     justifyContent: "center",
     alignItems: "center",
     gap: Spacing.sm,
     marginTop: Spacing.md,
+    minWidth: 200,
   },
   uploadButtonText: {
     fontSize: 16,
