@@ -59,8 +59,8 @@ async function downloadModels(modelsPath: string): Promise<void> {
   }
 }
 
-function catmullRomSpline(points: {x: number, y: number}[], numSegments: number = 10): {x: number, y: number}[] {
-  if (points.length < 2) return points;
+function catmullRomSpline(points: {x: number, y: number}[], numSegments: number = 12): {x: number, y: number}[] {
+  if (points.length < 4) return points;
   
   const result: {x: number, y: number}[] = [];
   
@@ -97,32 +97,32 @@ function catmullRomSpline(points: {x: number, y: number}[], numSegments: number 
   return result;
 }
 
-function sampleForeheadColor(
+function sampleSkinColor(
   ctx: CanvasRenderingContext2D,
-  eyebrowTop: number,
-  faceCenterX: number,
-  faceWidth: number
+  x: number,
+  y: number,
+  width: number,
+  height: number
 ): { r: number, g: number, b: number } {
-  const sampleY = Math.max(0, eyebrowTop - 10);
-  const sampleX = faceCenterX;
-  const sampleWidth = Math.floor(faceWidth * 0.3);
-  const sampleHeight = 5;
-  
   try {
-    const imageData = ctx.getImageData(
-      Math.max(0, Math.floor(sampleX - sampleWidth / 2)),
-      Math.floor(sampleY),
-      sampleWidth,
-      sampleHeight
-    );
+    const sampleX = Math.max(0, Math.floor(x));
+    const sampleY = Math.max(0, Math.floor(y));
+    const sampleW = Math.max(1, Math.floor(width));
+    const sampleH = Math.max(1, Math.floor(height));
+    
+    const imageData = ctx.getImageData(sampleX, sampleY, sampleW, sampleH);
     
     let r = 0, g = 0, b = 0, count = 0;
     for (let i = 0; i < imageData.data.length; i += 4) {
-      r += imageData.data[i];
-      g += imageData.data[i + 1];
-      b += imageData.data[i + 2];
-      count++;
+      if (imageData.data[i + 3] > 0) {
+        r += imageData.data[i];
+        g += imageData.data[i + 1];
+        b += imageData.data[i + 2];
+        count++;
+      }
     }
+    
+    if (count === 0) return { r: 210, g: 180, b: 160 };
     
     return {
       r: Math.round(r / count),
@@ -130,8 +130,97 @@ function sampleForeheadColor(
       b: Math.round(b / count)
     };
   } catch {
-    return { r: 220, g: 190, b: 170 };
+    return { r: 210, g: 180, b: 160 };
   }
+}
+
+function stackBlur(ctx: CanvasRenderingContext2D, width: number, height: number, radius: number): void {
+  if (radius < 1) return;
+  
+  const imageData = ctx.getImageData(0, 0, width, height);
+  const pixels = imageData.data;
+  
+  const wm = width - 1;
+  const hm = height - 1;
+  const div = radius + radius + 1;
+  
+  const r: number[] = [];
+  const g: number[] = [];
+  const b: number[] = [];
+  const a: number[] = [];
+  
+  let rsum: number, gsum: number, bsum: number, asum: number;
+  let p: number, p1: number, p2: number;
+  let yp: number, yi: number, yw: number;
+  
+  const mul_sum = 1 / div;
+  
+  yw = yi = 0;
+  
+  for (let y = 0; y < height; y++) {
+    rsum = gsum = bsum = asum = 0;
+    
+    for (let i = -radius; i <= radius; i++) {
+      p = (yi + Math.min(wm, Math.max(0, i))) * 4;
+      rsum += pixels[p];
+      gsum += pixels[p + 1];
+      bsum += pixels[p + 2];
+      asum += pixels[p + 3];
+    }
+    
+    for (let x = 0; x < width; x++) {
+      r[yi] = rsum * mul_sum;
+      g[yi] = gsum * mul_sum;
+      b[yi] = bsum * mul_sum;
+      a[yi] = asum * mul_sum;
+      
+      p1 = (yi + Math.min(wm, x + radius + 1)) * 4;
+      p2 = (yi + Math.max(0, x - radius)) * 4;
+      
+      rsum += pixels[p1] - pixels[p2];
+      gsum += pixels[p1 + 1] - pixels[p2 + 1];
+      bsum += pixels[p1 + 2] - pixels[p2 + 2];
+      asum += pixels[p1 + 3] - pixels[p2 + 3];
+      
+      yi++;
+    }
+    yw += width;
+  }
+  
+  for (let x = 0; x < width; x++) {
+    rsum = gsum = bsum = asum = 0;
+    yp = -radius * width;
+    
+    for (let i = -radius; i <= radius; i++) {
+      yi = Math.max(0, yp) + x;
+      rsum += r[yi];
+      gsum += g[yi];
+      bsum += b[yi];
+      asum += a[yi];
+      yp += width;
+    }
+    
+    yi = x;
+    
+    for (let y = 0; y < height; y++) {
+      pixels[yi * 4] = rsum * mul_sum;
+      pixels[yi * 4 + 1] = gsum * mul_sum;
+      pixels[yi * 4 + 2] = bsum * mul_sum;
+      pixels[yi * 4 + 3] = asum * mul_sum;
+      
+      p1 = x + Math.min(hm, y + radius + 1) * width;
+      p2 = x + Math.max(0, y - radius) * width;
+      
+      rsum += r[p1] - r[p2];
+      gsum += g[p1] - g[p2];
+      bsum += b[p1] - b[p2];
+      asum += a[p1] - a[p2];
+      
+      yi += width;
+    }
+  }
+  
+  ctx.putImageData(imageData, 0, 0);
 }
 
 export async function processImageForFaceAnonymization(imageBase64: string): Promise<string> {
@@ -177,104 +266,139 @@ export async function processImageForFaceAnonymization(imageBase64: string): Pro
   
   const faceCenterX = box.x + faceWidth / 2;
   const jawBottom = Math.max(...jawline.map(p => p.y));
-  const chinPoint = jawline[Math.floor(jawline.length / 2)];
   const eyebrowTop = Math.min(...leftEyebrow.map(p => p.y), ...rightEyebrow.map(p => p.y));
   
   const foreheadHeight = faceHeight * 0.55;
   const headTop = eyebrowTop - foreheadHeight;
   
-  const skinColor = sampleForeheadColor(ctx, eyebrowTop, faceCenterX, faceWidth);
+  const neckLength = faceHeight * 0.4;
+  const neckBottom = jawBottom + neckLength;
   
-  const padding = faceWidth * 0.2;
-  const leftBound = Math.min(...jawline.map(p => p.x)) - padding;
-  const rightBound = Math.max(...jawline.map(p => p.x)) + padding;
+  const skinColor = sampleSkinColor(ctx, faceCenterX - faceWidth * 0.15, eyebrowTop - 15, faceWidth * 0.3, 10);
+  
+  const cheekPadding = faceWidth * 0.08;
+  const leftBound = Math.min(...jawline.map(p => p.x)) - cheekPadding;
+  const rightBound = Math.max(...jawline.map(p => p.x)) + cheekPadding;
   const totalWidth = rightBound - leftBound;
-  const totalHeight = jawBottom - headTop + padding;
+  const totalHeight = neckBottom - headTop;
   
-  const outputSize = Math.max(totalWidth, totalHeight);
-  const outputCanvas = createCanvas(outputSize, outputSize);
-  const outputCtx = outputCanvas.getContext("2d");
-  
-  outputCtx.clearRect(0, 0, outputSize, outputSize);
+  const superSample = 2;
+  const outputSize = Math.max(totalWidth, totalHeight) * 1.1;
+  const ssSize = outputSize * superSample;
   
   const offsetX = (outputSize - totalWidth) / 2 - leftBound;
   const offsetY = (outputSize - totalHeight) / 2 - headTop;
   
-  const headCenterX = faceCenterX + offsetX;
-  const headTopY = headTop + offsetY;
-  const headWidth = faceWidth * 0.58;
-  const headHeight = foreheadHeight * 1.2;
+  const ssOffsetX = offsetX * superSample;
+  const ssOffsetY = offsetY * superSample;
+  const ssFaceWidth = faceWidth * superSample;
+  const ssFaceHeight = faceHeight * superSample;
   
-  const gradient = outputCtx.createRadialGradient(
-    headCenterX, headTopY + headHeight * 0.6,
-    headWidth * 0.3,
-    headCenterX, headTopY + headHeight * 0.6,
-    headWidth * 1.2
-  );
-  gradient.addColorStop(0, `rgb(${skinColor.r}, ${skinColor.g}, ${skinColor.b})`);
-  gradient.addColorStop(0.7, `rgb(${skinColor.r - 10}, ${skinColor.g - 8}, ${skinColor.b - 5})`);
-  gradient.addColorStop(1, `rgba(${skinColor.r - 20}, ${skinColor.g - 15}, ${skinColor.b - 10}, 0.8)`);
-  
-  outputCtx.fillStyle = gradient;
-  outputCtx.beginPath();
-  outputCtx.ellipse(headCenterX, headTopY + headHeight * 0.5, headWidth, headHeight * 0.55, 0, 0, Math.PI * 2);
-  outputCtx.fill();
+  const ssMaskCanvas = createCanvas(ssSize, ssSize);
+  const ssMaskCtx = ssMaskCanvas.getContext("2d");
   
   const adjustedJawline = jawline.map(p => ({
-    x: p.x + offsetX,
-    y: p.y + offsetY
+    x: p.x * superSample + ssOffsetX,
+    y: p.y * superSample + ssOffsetY
   }));
   
-  const leftTemple = { x: adjustedJawline[0].x - padding * 0.3, y: adjustedJawline[0].y - faceHeight * 0.2 };
-  const rightTemple = { x: adjustedJawline[adjustedJawline.length - 1].x + padding * 0.3, y: adjustedJawline[adjustedJawline.length - 1].y - faceHeight * 0.2 };
+  const headCenterX = faceCenterX * superSample + ssOffsetX;
+  const headTopY = headTop * superSample + ssOffsetY;
+  const neckBottomY = neckBottom * superSample + ssOffsetY;
+  
+  const chinIndex = Math.floor(adjustedJawline.length / 2);
+  const chinPoint = adjustedJawline[chinIndex];
+  
+  const neckWidth = ssFaceWidth * 0.45;
+  const neckLeft = { x: chinPoint.x - neckWidth / 2, y: neckBottomY };
+  const neckRight = { x: chinPoint.x + neckWidth / 2, y: neckBottomY };
+  
+  const leftJaw = adjustedJawline[0];
+  const rightJaw = adjustedJawline[adjustedJawline.length - 1];
+  
+  const leftTemple = { x: leftJaw.x - cheekPadding * superSample, y: leftJaw.y - ssFaceHeight * 0.15 };
+  const rightTemple = { x: rightJaw.x + cheekPadding * superSample, y: rightJaw.y - ssFaceHeight * 0.15 };
+  
+  const headWidth = ssFaceWidth * 0.6;
   
   const outlinePoints: {x: number, y: number}[] = [];
   
-  outlinePoints.push({ x: headCenterX, y: headTopY });
-  outlinePoints.push({ x: headCenterX + headWidth * 0.7, y: headTopY + headHeight * 0.15 });
-  outlinePoints.push({ x: rightTemple.x + padding * 0.2, y: rightTemple.y - faceHeight * 0.1 });
-  outlinePoints.push(rightTemple);
-  outlinePoints.push(adjustedJawline[adjustedJawline.length - 1]);
-  
-  for (let i = adjustedJawline.length - 2; i >= 1; i--) {
-    outlinePoints.push(adjustedJawline[i]);
-  }
-  
-  outlinePoints.push(adjustedJawline[0]);
+  outlinePoints.push(neckLeft);
+  outlinePoints.push({ x: neckLeft.x - ssFaceWidth * 0.05, y: (neckLeft.y + adjustedJawline[1].y) / 2 });
+  outlinePoints.push({ x: adjustedJawline[1].x - cheekPadding * superSample * 0.5, y: adjustedJawline[1].y });
+  outlinePoints.push({ x: leftJaw.x - cheekPadding * superSample * 0.8, y: leftJaw.y });
   outlinePoints.push(leftTemple);
-  outlinePoints.push({ x: leftTemple.x - padding * 0.2, y: leftTemple.y - faceHeight * 0.1 });
-  outlinePoints.push({ x: headCenterX - headWidth * 0.7, y: headTopY + headHeight * 0.15 });
-  outlinePoints.push({ x: headCenterX, y: headTopY });
+  outlinePoints.push({ x: leftTemple.x - ssFaceWidth * 0.05, y: headTopY + ssFaceHeight * 0.3 });
+  outlinePoints.push({ x: headCenterX - headWidth * 0.85, y: headTopY + ssFaceHeight * 0.1 });
+  outlinePoints.push({ x: headCenterX - headWidth * 0.5, y: headTopY });
+  outlinePoints.push({ x: headCenterX, y: headTopY - ssFaceHeight * 0.02 });
+  outlinePoints.push({ x: headCenterX + headWidth * 0.5, y: headTopY });
+  outlinePoints.push({ x: headCenterX + headWidth * 0.85, y: headTopY + ssFaceHeight * 0.1 });
+  outlinePoints.push({ x: rightTemple.x + ssFaceWidth * 0.05, y: headTopY + ssFaceHeight * 0.3 });
+  outlinePoints.push(rightTemple);
+  outlinePoints.push({ x: rightJaw.x + cheekPadding * superSample * 0.8, y: rightJaw.y });
+  outlinePoints.push({ x: adjustedJawline[adjustedJawline.length - 2].x + cheekPadding * superSample * 0.5, y: adjustedJawline[adjustedJawline.length - 2].y });
+  outlinePoints.push({ x: neckRight.x + ssFaceWidth * 0.05, y: (neckRight.y + adjustedJawline[adjustedJawline.length - 2].y) / 2 });
+  outlinePoints.push(neckRight);
+  outlinePoints.push(neckLeft);
   
-  const smoothOutline = catmullRomSpline(outlinePoints, 8);
+  const smoothOutline = catmullRomSpline(outlinePoints, 16);
   
-  outputCtx.save();
-  outputCtx.beginPath();
-  outputCtx.moveTo(smoothOutline[0].x, smoothOutline[0].y);
+  ssMaskCtx.fillStyle = 'white';
+  ssMaskCtx.beginPath();
+  ssMaskCtx.moveTo(smoothOutline[0].x, smoothOutline[0].y);
   for (let i = 1; i < smoothOutline.length; i++) {
-    outputCtx.lineTo(smoothOutline[i].x, smoothOutline[i].y);
+    ssMaskCtx.lineTo(smoothOutline[i].x, smoothOutline[i].y);
   }
-  outputCtx.closePath();
-  outputCtx.clip();
+  ssMaskCtx.closePath();
+  ssMaskCtx.fill();
   
-  outputCtx.drawImage(canvas, offsetX, offsetY);
-  
-  outputCtx.restore();
+  stackBlur(ssMaskCtx, ssSize, ssSize, 3);
   
   const maskCanvas = createCanvas(outputSize, outputSize);
   const maskCtx = maskCanvas.getContext("2d");
+  maskCtx.drawImage(ssMaskCanvas, 0, 0, ssSize, ssSize, 0, 0, outputSize, outputSize);
   
-  maskCtx.fillStyle = 'black';
-  maskCtx.fillRect(0, 0, outputSize, outputSize);
+  const outputCanvas = createCanvas(outputSize, outputSize);
+  const outputCtx = outputCanvas.getContext("2d");
   
-  maskCtx.fillStyle = 'white';
-  maskCtx.beginPath();
-  maskCtx.moveTo(smoothOutline[0].x, smoothOutline[0].y);
-  for (let i = 1; i < smoothOutline.length; i++) {
-    maskCtx.lineTo(smoothOutline[i].x, smoothOutline[i].y);
+  const headTopOutput = headTop + offsetY;
+  const foreheadY = eyebrowTop + offsetY - 5;
+  const headCenterOutput = faceCenterX + offsetX;
+  const headWidthOutput = headWidth / superSample;
+  
+  const scalpGradient = outputCtx.createRadialGradient(
+    headCenterOutput, headTopOutput + foreheadHeight * 0.3,
+    faceWidth * 0.1,
+    headCenterOutput, headTopOutput + foreheadHeight * 0.3,
+    headWidthOutput * 1.3
+  );
+  scalpGradient.addColorStop(0, `rgb(${skinColor.r}, ${skinColor.g}, ${skinColor.b})`);
+  scalpGradient.addColorStop(0.5, `rgb(${Math.max(0, skinColor.r - 5)}, ${Math.max(0, skinColor.g - 4)}, ${Math.max(0, skinColor.b - 3)})`);
+  scalpGradient.addColorStop(1, `rgb(${Math.max(0, skinColor.r - 15)}, ${Math.max(0, skinColor.g - 12)}, ${Math.max(0, skinColor.b - 8)})`);
+  
+  outputCtx.fillStyle = scalpGradient;
+  outputCtx.beginPath();
+  outputCtx.ellipse(headCenterOutput, headTopOutput + foreheadHeight * 0.35, headWidthOutput, foreheadHeight * 0.6, 0, 0, Math.PI * 2);
+  outputCtx.fill();
+  
+  outputCtx.drawImage(canvas, offsetX, offsetY);
+  
+  outputCtx.save();
+  outputCtx.beginPath();
+  
+  const outputOutline = smoothOutline.map(p => ({ x: p.x / superSample, y: p.y / superSample }));
+  outputCtx.moveTo(outputOutline[0].x, outputOutline[0].y);
+  for (let i = 1; i < outputOutline.length; i++) {
+    outputCtx.lineTo(outputOutline[i].x, outputOutline[i].y);
   }
-  maskCtx.closePath();
-  maskCtx.fill();
+  outputCtx.closePath();
+  
+  outputCtx.globalCompositeOperation = 'destination-out';
+  outputCtx.fillStyle = 'black';
+  outputCtx.rect(0, 0, outputSize, outputSize);
+  outputCtx.fill('evenodd');
+  outputCtx.restore();
   
   const finalCanvas = createCanvas(outputSize, outputSize);
   const finalCtx = finalCanvas.getContext("2d");
