@@ -59,7 +59,7 @@ async function downloadModels(modelsPath: string): Promise<void> {
   }
 }
 
-function catmullRomSpline(points: {x: number, y: number}[], numSegments: number = 12): {x: number, y: number}[] {
+function catmullRomSpline(points: {x: number, y: number}[], numSegments: number = 6): {x: number, y: number}[] {
   if (points.length < 4) return points;
   
   const result: {x: number, y: number}[] = [];
@@ -342,7 +342,7 @@ export async function processImageForFaceAnonymization(imageBase64: string): Pro
   outlinePoints.push(neckRight);
   outlinePoints.push(neckLeft);
   
-  const smoothOutline = catmullRomSpline(outlinePoints, 16);
+  const smoothOutline = catmullRomSpline(outlinePoints, 8);
   
   ssMaskCtx.fillStyle = 'white';
   ssMaskCtx.beginPath();
@@ -353,7 +353,7 @@ export async function processImageForFaceAnonymization(imageBase64: string): Pro
   ssMaskCtx.closePath();
   ssMaskCtx.fill();
   
-  stackBlur(ssMaskCtx, ssSize, ssSize, 3);
+  stackBlur(ssMaskCtx, ssSize, ssSize, 2);
   
   const maskCanvas = createCanvas(outputSize, outputSize);
   const maskCtx = maskCanvas.getContext("2d");
