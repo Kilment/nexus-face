@@ -296,10 +296,10 @@ function PhotoCard({ photo, borderColor, theme, isDark, onPress }: PhotoCardProp
                   <Feather name="link" size={12} color="#FFFFFF" />
                 </View>
               ) : null}
-              {(photo.gender || photo.ageRange) ? (
+              {(photo.gender || photo.ageRange || photo.ethnicity) ? (
                 <View style={styles.demographicBadge}>
                   <ThemedText style={styles.demographicText}>
-                    {photo.gender ? `${photo.gender.charAt(0)}` : ""}{photo.ageRange ? ` • ${photo.ageRange}` : ""}
+                    {photo.gender ? `${photo.gender.charAt(0)}` : ""}{photo.ageRange ? ` • ${photo.ageRange}` : ""}{photo.ethnicity ? ` • ${photo.ethnicity}` : ""}
                   </ThemedText>
                 </View>
               ) : null}
@@ -340,10 +340,10 @@ function PhotoCard({ photo, borderColor, theme, isDark, onPress }: PhotoCardProp
                   <Feather name="link" size={12} color="#FFFFFF" />
                 </View>
               ) : null}
-              {(photo.gender || photo.ageRange) ? (
+              {(photo.gender || photo.ageRange || photo.ethnicity) ? (
                 <View style={styles.demographicBadge}>
                   <ThemedText style={styles.demographicText}>
-                    {photo.gender ? `${photo.gender.charAt(0)}` : ""}{photo.ageRange ? ` • ${photo.ageRange}` : ""}
+                    {photo.gender ? `${photo.gender.charAt(0)}` : ""}{photo.ageRange ? ` • ${photo.ageRange}` : ""}{photo.ethnicity ? ` • ${photo.ethnicity}` : ""}
                   </ThemedText>
                 </View>
               ) : null}

@@ -197,6 +197,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         locationCode,
         gender: demographics?.gender,
         ageRange: demographics?.ageRange,
+        ethnicity: demographics?.ethnicity,
       });
 
       // Autolink logic
