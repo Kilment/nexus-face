@@ -4,6 +4,7 @@ import session from "express-session";
 import { storage } from "./storage";
 import { processImageForFaceAnonymization } from "./face-processor";
 import { insertPhotoSchema } from "@shared/schema";
+import { calculateImprovementScore } from "./rekognition";
 
 declare module "express-session" {
   interface SessionData {
@@ -211,6 +212,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await storage.updatePhotoLink(photo.id, targetPhoto.id);
         await storage.updatePhotoLink(targetPhoto.id, photo.id);
         
+        // Calculate improvement score if this is an "after" photo linking to a "before" photo
+        if (photo.beforeAfter === "after" && targetPhoto.beforeAfter === "before") {
+          const score = await calculateImprovementScore(
+            targetPhoto.processedImageBase64 || "",
+            photo.processedImageBase64 || ""
+          );
+          await storage.updatePhotoLink(photo.id, targetPhoto.id, score);
+        } else if (photo.beforeAfter === "before" && targetPhoto.beforeAfter === "after") {
+          const score = await calculateImprovementScore(
+            photo.processedImageBase64 || "",
+            targetPhoto.processedImageBase64 || ""
+          );
+          await storage.updatePhotoLink(targetPhoto.id, photo.id, score);
+        }
+
         // Return updated photo with link info
         const updatedPhoto = await storage.getPhoto(photo.id);
         return res.json({ photo: updatedPhoto });

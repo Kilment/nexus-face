@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, boolean, integer } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -25,6 +25,7 @@ export const photos = pgTable("photos", {
   beforeAfter: varchar("before_after", { length: 10 }).notNull(),
   locationCode: varchar("location_code", { length: 50 }).notNull(),
   linkedPhotoId: varchar("linked_photo_id"),
+  improvementScore: integer("improvement_score"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

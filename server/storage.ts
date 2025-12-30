@@ -10,7 +10,7 @@ export interface IStorage {
   getPhoto(id: string): Promise<Photo | undefined>;
   getPhotosByUserId(userId: string): Promise<Photo[]>;
   createPhoto(photo: InsertPhoto): Promise<Photo>;
-  updatePhotoLink(photoId: string, linkedPhotoId: string | null): Promise<Photo | undefined>;
+  updatePhotoLink(photoId: string, linkedPhotoId: string | null, improvementScore?: number): Promise<Photo | undefined>;
   deletePhoto(id: string): Promise<void>;
   getLinkablePhotos(userId: string, initials: string, beforeAfter: string, excludeId: string): Promise<Photo[]>;
 }
@@ -51,10 +51,10 @@ export class DatabaseStorage implements IStorage {
     return photo;
   }
 
-  async updatePhotoLink(photoId: string, linkedPhotoId: string | null): Promise<Photo | undefined> {
+  async updatePhotoLink(photoId: string, linkedPhotoId: string | null, improvementScore?: number): Promise<Photo | undefined> {
     const [photo] = await db
       .update(photos)
-      .set({ linkedPhotoId })
+      .set({ linkedPhotoId, improvementScore: improvementScore ?? null })
       .where(eq(photos.id, photoId))
       .returning();
     return photo || undefined;
