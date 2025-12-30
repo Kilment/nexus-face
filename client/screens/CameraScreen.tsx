@@ -1,10 +1,19 @@
 import React, { useState, useRef, useEffect } from "react";
-import { View, StyleSheet, Pressable, Platform, Alert } from "react-native";
+import { View, StyleSheet, Pressable, Platform, Alert, Dimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { CameraView, CameraType, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
 import { Feather } from "@expo/vector-icons";
+import Animated, { 
+  useSharedValue, 
+  useAnimatedStyle, 
+  withRepeat, 
+  withTiming,
+  withSequence,
+  Easing 
+} from "react-native-reanimated";
+import Svg, { Defs, Rect, Mask, Ellipse } from "react-native-svg";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { useTheme } from "@/hooks/useTheme";
@@ -14,6 +23,10 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
+
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
+const OVAL_WIDTH = SCREEN_WIDTH * 0.7;
+const OVAL_HEIGHT = OVAL_WIDTH * 1.35;
 
 export default function CameraScreen() {
   const insets = useSafeAreaInsets();
@@ -25,6 +38,23 @@ export default function CameraScreen() {
   const [isCapturing, setIsCapturing] = useState(false);
   const cameraRef = useRef<CameraView>(null);
   const [permission, requestPermission] = useCameraPermissions();
+
+  const borderOpacity = useSharedValue(0.6);
+
+  useEffect(() => {
+    borderOpacity.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 1200, easing: Easing.inOut(Easing.ease) }),
+        withTiming(0.5, { duration: 1200, easing: Easing.inOut(Easing.ease) })
+      ),
+      -1,
+      true
+    );
+  }, []);
+
+  const borderAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: borderOpacity.value,
+  }));
 
   const toggleFacing = () => {
     setFacing((current) => (current === "back" ? "front" : "back"));
@@ -41,11 +71,10 @@ export default function CameraScreen() {
     try {
       const photo = await cameraRef.current.takePictureAsync({
         base64: true,
-        quality: 0.5,
+        quality: 0.8,
       });
 
       if (photo?.base64) {
-        // Navigate to Processing with the captured image
         navigation.navigate("Processing", { imageBase64: photo.base64 });
       }
     } catch (error) {
@@ -61,8 +90,8 @@ export default function CameraScreen() {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images"],
         allowsEditing: true,
-        aspect: [1, 1],
-        quality: 0.5,
+        aspect: [3, 4],
+        quality: 0.8,
         base64: true,
       });
 
@@ -74,6 +103,8 @@ export default function CameraScreen() {
       Alert.alert("Error", "Failed to pick image. Please try again.");
     }
   };
+
+  const ovalCenterY = insets.top + 80 + OVAL_HEIGHT / 2;
 
   if (!permission) {
     return (
@@ -165,7 +196,6 @@ export default function CameraScreen() {
     );
   }
 
-  // Snapchat-like camera interface
   return (
     <View style={styles.container}>
       <CameraView
@@ -176,7 +206,55 @@ export default function CameraScreen() {
         enableTorch={flash}
       />
 
-      {/* Top Controls - Absolute positioning */}
+      {/* SVG Oval Cutout Mask */}
+      <View style={styles.overlayContainer} pointerEvents="none">
+        <Svg width={SCREEN_WIDTH} height={SCREEN_HEIGHT} style={StyleSheet.absoluteFill}>
+          <Defs>
+            <Mask id="ovalMask">
+              <Rect x="0" y="0" width={SCREEN_WIDTH} height={SCREEN_HEIGHT} fill="white" />
+              <Ellipse 
+                cx={SCREEN_WIDTH / 2} 
+                cy={ovalCenterY} 
+                rx={OVAL_WIDTH / 2} 
+                ry={OVAL_HEIGHT / 2} 
+                fill="black" 
+              />
+            </Mask>
+          </Defs>
+          <Rect 
+            x="0" 
+            y="0" 
+            width={SCREEN_WIDTH} 
+            height={SCREEN_HEIGHT} 
+            fill="rgba(0, 0, 0, 0.6)" 
+            mask="url(#ovalMask)" 
+          />
+        </Svg>
+        
+        {/* Animated Oval Border */}
+        <Animated.View style={[StyleSheet.absoluteFill, borderAnimatedStyle]}>
+          <Svg width={SCREEN_WIDTH} height={SCREEN_HEIGHT}>
+            <Ellipse 
+              cx={SCREEN_WIDTH / 2} 
+              cy={ovalCenterY} 
+              rx={OVAL_WIDTH / 2} 
+              ry={OVAL_HEIGHT / 2} 
+              fill="none" 
+              stroke="#FFFFFF" 
+              strokeWidth={3}
+            />
+          </Svg>
+        </Animated.View>
+        
+        {/* Face positioning hint */}
+        <View style={[styles.hintContainer, { top: ovalCenterY + OVAL_HEIGHT / 2 + 24 }]}>
+          <ThemedText style={styles.hintText}>
+            Position your face within the oval
+          </ThemedText>
+        </View>
+      </View>
+
+      {/* Top Controls */}
       <View
         style={[
           styles.topControls,
@@ -208,14 +286,13 @@ export default function CameraScreen() {
         </Pressable>
       </View>
 
-      {/* Bottom Controls - Snapchat Style */}
+      {/* Bottom Controls */}
       <View
         style={[
           styles.bottomControls,
           { paddingBottom: tabBarHeight + Spacing.lg },
         ]}
       >
-        {/* Gallery Button */}
         <Pressable
           style={({ pressed }) => [
             styles.sideButton,
@@ -226,7 +303,6 @@ export default function CameraScreen() {
           <Feather name="image" size={32} color="#FFFFFF" />
         </Pressable>
 
-        {/* Capture Button - Center */}
         <Pressable
           style={({ pressed }) => [
             styles.captureButton,
@@ -239,7 +315,6 @@ export default function CameraScreen() {
           <View style={styles.captureButtonInner} />
         </Pressable>
 
-        {/* Placeholder for symmetry */}
         <View style={styles.sideButton} />
       </View>
     </View>
@@ -253,6 +328,24 @@ const styles = StyleSheet.create({
   },
   camera: {
     flex: 1,
+  },
+  overlayContainer: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 5,
+  },
+  hintContainer: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    alignItems: "center",
+  },
+  hintText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "500",
+    textShadowColor: "rgba(0, 0, 0, 0.8)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
   topControls: {
     position: "absolute",
