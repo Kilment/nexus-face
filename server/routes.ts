@@ -297,6 +297,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/stats", requireAuth, async (req, res) => {
+    try {
+      const stats = await storage.getUserStats(req.session.userId!);
+      res.json({ stats });
+    } catch (error) {
+      console.error("Error fetching stats:", error);
+      res.status(500).json({ error: "Failed to fetch stats" });
+    }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
