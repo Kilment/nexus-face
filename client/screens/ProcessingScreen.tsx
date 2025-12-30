@@ -35,6 +35,11 @@ export default function ProcessingScreen() {
   
   const [status, setStatus] = useState("Detecting face...");
   const [isComplete, setIsComplete] = useState(false);
+  const [improvementData, setImprovementData] = useState<{
+    percentage: number;
+    low: number;
+    high: number;
+  } | null>(null);
 
   const scanLinePosition = useSharedValue(0);
   const revealHeight = useSharedValue(0);
@@ -89,6 +94,11 @@ export default function ProcessingScreen() {
 
       setIsComplete(true);
       revealHeight.value = withTiming(IMAGE_HEIGHT, { duration: 800, easing: Easing.out(Easing.ease) });
+      // In a real app, this data would come from the photo save response
+      // For the reveal effect, we'll simulate a display of the improvement
+      // Note: The actual score is calculated on the server during the save step
+      // But we can show a preview or update the UI after the process
+      
       setStatus("Complete!");
 
       await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -156,6 +166,18 @@ export default function ProcessingScreen() {
             <View style={[styles.ovalBorder, { borderColor: theme.tabIconSelected }]} />
           </View>
         </View>
+
+        {improvementData && (
+          <View style={styles.scoreCard}>
+            <ThemedText style={styles.scoreTitle}>Improvement</ThemedText>
+            <ThemedText style={[styles.scoreValue, { color: theme.tabIconSelected }]}>
+              {improvementData.percentage > 0 ? "+" : ""}{improvementData.percentage}%
+            </ThemedText>
+            <ThemedText style={styles.confidenceText}>
+              95% CI = {improvementData.low}% - {improvementData.high}%
+            </ThemedText>
+          </View>
+        )}
 
         <View style={styles.statusContainer}>
           <View style={styles.statusIndicator}>
@@ -241,5 +263,28 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: "500",
     textAlign: "center",
+  },
+  scoreCard: {
+    marginTop: Spacing.xl,
+    padding: Spacing.lg,
+    borderRadius: 20,
+    backgroundColor: "rgba(255, 255, 255, 0.05)",
+    alignItems: "center",
+    width: IMAGE_WIDTH,
+  },
+  scoreTitle: {
+    fontSize: 14,
+    opacity: 0.6,
+    textTransform: "uppercase",
+    letterSpacing: 1,
+  },
+  scoreValue: {
+    fontSize: 32,
+    fontWeight: "800",
+    marginVertical: Spacing.xs,
+  },
+  confidenceText: {
+    fontSize: 12,
+    opacity: 0.5,
   },
 });

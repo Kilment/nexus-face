@@ -214,17 +214,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         
         // Calculate improvement score if this is an "after" photo linking to a "before" photo
         if (photo.beforeAfter === "after" && targetPhoto.beforeAfter === "before") {
-          const score = await calculateImprovementScore(
+          const result = await calculateImprovementScore(
             targetPhoto.processedImageBase64 || "",
             photo.processedImageBase64 || ""
           );
-          await storage.updatePhotoLink(photo.id, targetPhoto.id, score);
+          await storage.updatePhotoLink(photo.id, targetPhoto.id, result.score);
         } else if (photo.beforeAfter === "before" && targetPhoto.beforeAfter === "after") {
-          const score = await calculateImprovementScore(
+          const result = await calculateImprovementScore(
             photo.processedImageBase64 || "",
             targetPhoto.processedImageBase64 || ""
           );
-          await storage.updatePhotoLink(targetPhoto.id, photo.id, score);
+          await storage.updatePhotoLink(targetPhoto.id, photo.id, result.score);
         }
 
         // Return updated photo with link info
