@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { View, StyleSheet, Alert, Dimensions } from "react-native";
+import { View, StyleSheet, Alert, Dimensions, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -9,41 +10,42 @@ import Animated, {
   useAnimatedStyle,
   withTiming,
   withRepeat,
+  withSequence,
   Easing,
   interpolate,
+  withDelay,
 } from "react-native-reanimated";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { useTheme } from "@/hooks/useTheme";
-import { Spacing } from "@/constants/theme";
+import { Spacing, BorderRadius } from "@/constants/theme";
 import { apiRequest } from "@/lib/query-client";
+import { hapticFeedback } from "@/lib/haptics";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type ProcessingRouteProp = RouteProp<RootStackParamList, "Processing">;
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const IMAGE_WIDTH = SCREEN_WIDTH * 0.7;
+const IMAGE_WIDTH = SCREEN_WIDTH * 0.65;
 const IMAGE_HEIGHT = IMAGE_WIDTH * 1.35;
 
 export default function ProcessingScreen() {
   const insets = useSafeAreaInsets();
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute<ProcessingRouteProp>();
   const { imageBase64 } = route.params;
-  
+
   const [status, setStatus] = useState("Detecting face...");
   const [isComplete, setIsComplete] = useState(false);
-  const [improvementData, setImprovementData] = useState<{
-    percentage: number;
-    low: number;
-    high: number;
-  } | null>(null);
+  const [progress, setProgress] = useState(0);
 
   const scanLinePosition = useSharedValue(0);
   const revealHeight = useSharedValue(0);
   const pulseOpacity = useSharedValue(0.3);
+  const progressWidth = useSharedValue(0);
+  const progressGlow = useSharedValue(0);
 
   useEffect(() => {
     scanLinePosition.value = withRepeat(
@@ -56,6 +58,15 @@ export default function ProcessingScreen() {
       withTiming(0.7, { duration: 600, easing: Easing.inOut(Easing.ease) }),
       -1,
       true
+    );
+
+    progressGlow.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 1000, easing: Easing.inOut(Easing.ease) }),
+        withTiming(0, { duration: 1000, easing: Easing.inOut(Easing.ease) })
+      ),
+      -1,
+      false
     );
 
     processImage();
@@ -79,35 +90,53 @@ export default function ProcessingScreen() {
     opacity: pulseOpacity.value,
   }));
 
+  const progressBarStyle = useAnimatedStyle(() => ({
+    width: `${progressWidth.value}%`,
+  }));
+
+  const progressGlowStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(progressGlow.value, [0, 1], [0.3, 0.8]),
+  }));
+
+  const updateProgress = (value: number) => {
+    setProgress(value);
+    progressWidth.value = withTiming(value, { duration: 300, easing: Easing.out(Easing.ease) });
+  };
+
   const processImage = async () => {
     try {
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      setStatus("Isolating face...");
-      
+      updateProgress(15);
       await new Promise((resolve) => setTimeout(resolve, 600));
+      setStatus("Isolating face...");
+      updateProgress(35);
+
+      await new Promise((resolve) => setTimeout(resolve, 500));
       setStatus("Processing...");
+      updateProgress(50);
 
       const response = await apiRequest("POST", "/api/photos/process", {
         imageBase64,
       });
       const data = await response.json();
 
+      updateProgress(85);
+      setStatus("Finalizing...");
+
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      updateProgress(100);
       setIsComplete(true);
       revealHeight.value = withTiming(IMAGE_HEIGHT, { duration: 800, easing: Easing.out(Easing.ease) });
-      // In a real app, this data would come from the photo save response
-      // For the reveal effect, we'll simulate a display of the improvement
-      // Note: The actual score is calculated on the server during the save step
-      // But we can show a preview or update the UI after the process
-      
       setStatus("Complete!");
+      hapticFeedback.success();
 
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      
+      await new Promise((resolve) => setTimeout(resolve, 800));
+
       navigation.replace("Tagging", {
         processedImageBase64: data.processedImageBase64,
       });
     } catch (error) {
       console.error("Processing error:", error);
+      hapticFeedback.error();
       Alert.alert(
         "Processing Failed",
         "Unable to process the image. Please try again.",
@@ -134,7 +163,6 @@ export default function ProcessingScreen() {
       >
         <View style={styles.imageWrapper}>
           <View style={[styles.imageContainer, { width: IMAGE_WIDTH, height: IMAGE_HEIGHT }]}>
-            {/* Base image with dark overlay */}
             <Image
               source={{ uri: `data:image/jpeg;base64,${imageBase64}` }}
               style={styles.previewImage}
@@ -142,7 +170,6 @@ export default function ProcessingScreen() {
             />
             <View style={styles.darkOverlay} />
 
-            {/* Top-down reveal mask showing the bright image */}
             <Animated.View style={[styles.revealContainer, revealMaskStyle]}>
               <Image
                 source={{ uri: `data:image/jpeg;base64,${imageBase64}` }}
@@ -151,42 +178,78 @@ export default function ProcessingScreen() {
               />
             </Animated.View>
 
-            {/* Scanning line */}
             {!isComplete ? (
-              <Animated.View 
+              <Animated.View
                 style={[
-                  styles.scanLine, 
-                  scanLineStyle, 
-                  { backgroundColor: theme.tabIconSelected }
-                ]} 
+                  styles.scanLine,
+                  scanLineStyle,
+                  { backgroundColor: theme.tabIconSelected },
+                ]}
               />
             ) : null}
-            
-            {/* Oval border */}
+
             <View style={[styles.ovalBorder, { borderColor: theme.tabIconSelected }]} />
           </View>
         </View>
 
-        {improvementData && (
-          <View style={styles.scoreCard}>
-            <ThemedText style={styles.scoreTitle}>Improvement</ThemedText>
-            <ThemedText style={[styles.scoreValue, { color: theme.tabIconSelected }]}>
-              {improvementData.percentage > 0 ? "+" : ""}{improvementData.percentage}%
-            </ThemedText>
-            <ThemedText style={styles.confidenceText}>
-              95% CI = {improvementData.low}% - {improvementData.high}%
-            </ThemedText>
+        <View style={styles.progressSection}>
+          <View style={styles.progressContainer}>
+            {Platform.OS === "ios" ? (
+              <BlurView
+                intensity={40}
+                tint={isDark ? "dark" : "light"}
+                style={styles.progressBackground}
+              >
+                <Animated.View
+                  style={[
+                    styles.progressBar,
+                    progressBarStyle,
+                    { backgroundColor: theme.tabIconSelected },
+                  ]}
+                >
+                  <Animated.View
+                    style={[styles.progressGlow, progressGlowStyle]}
+                  />
+                </Animated.View>
+              </BlurView>
+            ) : (
+              <View
+                style={[
+                  styles.progressBackground,
+                  {
+                    backgroundColor: isDark
+                      ? "rgba(60, 60, 67, 0.5)"
+                      : "rgba(120, 120, 128, 0.2)",
+                  },
+                ]}
+              >
+                <Animated.View
+                  style={[
+                    styles.progressBar,
+                    progressBarStyle,
+                    { backgroundColor: theme.tabIconSelected },
+                  ]}
+                >
+                  <Animated.View
+                    style={[styles.progressGlow, progressGlowStyle]}
+                  />
+                </Animated.View>
+              </View>
+            )}
           </View>
-        )}
+          <ThemedText style={[styles.progressText, { color: theme.textSecondary }]}>
+            {progress}%
+          </ThemedText>
+        </View>
 
         <View style={styles.statusContainer}>
           <View style={styles.statusIndicator}>
-            <Animated.View 
+            <Animated.View
               style={[
-                styles.statusDot, 
-                { backgroundColor: theme.tabIconSelected },
-                statusDotStyle
-              ]} 
+                styles.statusDot,
+                { backgroundColor: isComplete ? theme.success : theme.tabIconSelected },
+                statusDotStyle,
+              ]}
             />
             <ThemedText style={styles.statusText}>{status}</ThemedText>
           </View>
@@ -245,8 +308,44 @@ const styles = StyleSheet.create({
     borderRadius: 9999,
     borderWidth: 3,
   },
+  progressSection: {
+    marginTop: Spacing.xl * 1.5,
+    alignItems: "center",
+    width: "100%",
+    maxWidth: IMAGE_WIDTH,
+  },
+  progressContainer: {
+    width: "100%",
+    height: 8,
+    borderRadius: 4,
+    overflow: "hidden",
+  },
+  progressBackground: {
+    flex: 1,
+    borderRadius: 4,
+    overflow: "hidden",
+  },
+  progressBar: {
+    height: "100%",
+    borderRadius: 4,
+    position: "relative",
+    overflow: "hidden",
+  },
+  progressGlow: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    width: 40,
+    height: "100%",
+    backgroundColor: "rgba(255, 255, 255, 0.4)",
+  },
+  progressText: {
+    marginTop: Spacing.sm,
+    fontSize: 14,
+    fontWeight: "600",
+  },
   statusContainer: {
-    marginTop: Spacing.xl * 2,
+    marginTop: Spacing.xl,
     alignItems: "center",
   },
   statusIndicator: {
@@ -263,28 +362,5 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: "500",
     textAlign: "center",
-  },
-  scoreCard: {
-    marginTop: Spacing.xl,
-    padding: Spacing.lg,
-    borderRadius: 20,
-    backgroundColor: "rgba(255, 255, 255, 0.05)",
-    alignItems: "center",
-    width: IMAGE_WIDTH,
-  },
-  scoreTitle: {
-    fontSize: 14,
-    opacity: 0.6,
-    textTransform: "uppercase",
-    letterSpacing: 1,
-  },
-  scoreValue: {
-    fontSize: 32,
-    fontWeight: "800",
-    marginVertical: Spacing.xs,
-  },
-  confidenceText: {
-    fontSize: 12,
-    opacity: 0.5,
   },
 });

@@ -1,25 +1,30 @@
 import React, { useState } from "react";
-import { View, StyleSheet, Pressable, Platform, Alert, ActivityIndicator } from "react-native";
+import { View, StyleSheet, Platform, Alert } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
-import { Feather } from "@expo/vector-icons";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
+import { GlassButton } from "@/components/GlassButton";
 import { useTheme } from "@/hooks/useTheme";
-import { Colors, Spacing, BorderRadius, Typography } from "@/constants/theme";
+import { Spacing } from "@/constants/theme";
 import { useAuth } from "@/lib/auth-context";
+import { hapticFeedback } from "@/lib/haptics";
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const { login } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
 
   const handleLogin = async () => {
+    hapticFeedback.medium();
     setIsLoading(true);
     try {
       await login();
+      hapticFeedback.success();
     } catch (error) {
+      hapticFeedback.error();
       Alert.alert("Login Failed", "Unable to sign in. Please try again.");
     } finally {
       setIsLoading(false);
@@ -38,11 +43,38 @@ export default function LoginScreen() {
         ]}
       >
         <View style={styles.logoSection}>
-          <Image
-            source={require("../../assets/images/icon.png")}
-            style={styles.logo}
-            contentFit="contain"
-          />
+          <View style={styles.logoWrapper}>
+            {Platform.OS === "ios" ? (
+              <BlurView
+                intensity={60}
+                tint={isDark ? "dark" : "light"}
+                style={styles.logoGlass}
+              >
+                <Image
+                  source={require("../../assets/images/icon.png")}
+                  style={styles.logo}
+                  contentFit="contain"
+                />
+              </BlurView>
+            ) : (
+              <View
+                style={[
+                  styles.logoGlass,
+                  {
+                    backgroundColor: isDark
+                      ? "rgba(44, 44, 46, 0.9)"
+                      : "rgba(255, 255, 255, 0.9)",
+                  },
+                ]}
+              >
+                <Image
+                  source={require("../../assets/images/icon.png")}
+                  style={styles.logo}
+                  contentFit="contain"
+                />
+              </View>
+            )}
+          </View>
           <ThemedText style={styles.title}>FaceSnap</ThemedText>
           <ThemedText style={[styles.tagline, { color: theme.textSecondary }]}>
             Process and organize facial photos
@@ -50,28 +82,17 @@ export default function LoginScreen() {
         </View>
 
         <View style={styles.buttonSection}>
-          <Pressable
-            style={({ pressed }) => [
-              styles.signInButton,
-              { backgroundColor: theme.tabIconSelected },
-              pressed && styles.buttonPressed,
-              isLoading && styles.buttonDisabled,
-            ]}
+          <GlassButton
+            title={isLoading ? "Signing in..." : "Get Started"}
+            icon={isLoading ? undefined : "log-in"}
             onPress={handleLogin}
             disabled={isLoading}
-          >
-            {isLoading ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
-            ) : (
-              <>
-                <Feather name="log-in" size={20} color="#FFFFFF" />
-                <ThemedText style={styles.buttonText}>Get Started</ThemedText>
-              </>
-            )}
-          </Pressable>
+            loading={isLoading}
+            size="large"
+          />
 
           <ThemedText style={[styles.termsText, { color: theme.textTertiary }]}>
-            Sign in to start organizing your photos with anonymized face processing
+            By continuing, you agree to our Terms of Service and Privacy Policy
           </ThemedText>
         </View>
       </View>
@@ -85,55 +106,51 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    paddingHorizontal: Spacing.lg,
+    paddingHorizontal: Spacing.xl,
     justifyContent: "space-between",
-    alignItems: "center",
   },
   logoSection: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
+    gap: Spacing.md,
   },
-  logo: {
-    width: 120,
-    height: 120,
+  logoWrapper: {
+    borderRadius: 40,
+    overflow: "hidden",
     marginBottom: Spacing.lg,
   },
+  logoGlass: {
+    width: 140,
+    height: 140,
+    borderRadius: 35,
+    justifyContent: "center",
+    alignItems: "center",
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.15)",
+  },
+  logo: {
+    width: 100,
+    height: 100,
+  },
   title: {
-    ...Typography.h1,
-    marginBottom: Spacing.sm,
+    fontSize: 36,
+    fontWeight: "800",
+    letterSpacing: -0.5,
   },
   tagline: {
-    ...Typography.body,
+    fontSize: 17,
     textAlign: "center",
+    lineHeight: 24,
   },
   buttonSection: {
-    width: "100%",
-    alignItems: "center",
-  },
-  signInButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    width: "100%",
-    height: Spacing.buttonHeight,
-    borderRadius: BorderRadius.sm,
-    gap: Spacing.sm,
-  },
-  buttonPressed: {
-    opacity: 0.7,
-  },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  buttonText: {
-    ...Typography.button,
-    color: "#FFFFFF",
+    gap: Spacing.lg,
+    paddingBottom: Spacing.xl,
   },
   termsText: {
-    ...Typography.small,
+    fontSize: 12,
     textAlign: "center",
-    marginTop: Spacing.lg,
-    paddingHorizontal: Spacing.lg,
+    lineHeight: 18,
   },
 });

@@ -1,24 +1,36 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   View,
   StyleSheet,
   ScrollView,
   Alert,
   ActivityIndicator,
+  Dimensions,
+  Platform,
+  Pressable,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
+import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
 import { Feather } from "@expo/vector-icons";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { HeaderButton } from "@react-navigation/elements";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  interpolate,
+} from "react-native-reanimated";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
+import { GlassCard } from "@/components/GlassCard";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius, Typography } from "@/constants/theme";
 import { apiRequest, queryClient } from "@/lib/query-client";
+import { hapticFeedback } from "@/lib/haptics";
 import type { GalleryStackParamList } from "@/navigation/GalleryStackNavigator";
 import type { Photo } from "@shared/schema";
 
@@ -29,13 +41,23 @@ interface PhotoResponse {
   photo: Photo;
 }
 
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
+const COMPARISON_IMAGE_SIZE = (SCREEN_WIDTH - Spacing.lg * 3) / 2;
+
+type ViewMode = "side-by-side" | "stacked" | "slider";
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
 export default function LinkedPairScreen() {
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute<LinkedPairRouteProp>();
   const { photoId, linkedPhotoId } = route.params;
+
+  const [viewMode, setViewMode] = useState<ViewMode>("side-by-side");
+  const sliderPosition = useSharedValue(0.5);
 
   const { data: photo1Data, isLoading: isLoading1 } = useQuery<PhotoResponse>({
     queryKey: ["/api/photos", photoId],
@@ -51,9 +73,11 @@ export default function LinkedPairScreen() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/photos"] });
+      hapticFeedback.success();
       navigation.goBack();
     },
     onError: () => {
+      hapticFeedback.error();
       Alert.alert("Error", "Failed to unlink photos.");
     },
   });
@@ -72,6 +96,7 @@ export default function LinkedPairScreen() {
   }, [navigation, theme]);
 
   const handleUnlink = () => {
+    hapticFeedback.warning();
     Alert.alert(
       "Unlink Photos",
       "Are you sure you want to unlink these photos?",
@@ -84,6 +109,13 @@ export default function LinkedPairScreen() {
         },
       ]
     );
+  };
+
+  const cycleViewMode = () => {
+    hapticFeedback.selection();
+    const modes: ViewMode[] = ["side-by-side", "stacked", "slider"];
+    const currentIndex = modes.indexOf(viewMode);
+    setViewMode(modes[(currentIndex + 1) % modes.length]);
   };
 
   if (isLoading1 || isLoading2 || !photo1Data?.photo || !photo2Data?.photo) {
@@ -102,61 +134,196 @@ export default function LinkedPairScreen() {
   const beforePhoto = photo1.beforeAfter === "before" ? photo1 : photo2;
   const afterPhoto = photo1.beforeAfter === "after" ? photo1 : photo2;
 
+  const improvementScore = afterPhoto.improvementScore;
+  const percentage = improvementScore && improvementScore > 0
+    ? Math.round(Math.log(improvementScore / 50) * 144.27)
+    : 0;
+
+  const sliderStyle = useAnimatedStyle(() => ({
+    left: `${sliderPosition.value * 100}%`,
+  }));
+
+  const afterOverlayStyle = useAnimatedStyle(() => ({
+    width: `${sliderPosition.value * 100}%`,
+  }));
+
+  const renderSideBySide = () => (
+    <View style={styles.sideBySideContainer}>
+      <View style={styles.comparisonColumn}>
+        <View style={styles.labelContainer}>
+          {Platform.OS === "ios" ? (
+            <BlurView intensity={60} tint={isDark ? "dark" : "light"} style={[styles.labelBadge, { borderColor: theme.warning }]}>
+              <ThemedText style={[styles.labelText, { color: theme.warning }]}>Before</ThemedText>
+            </BlurView>
+          ) : (
+            <View style={[styles.labelBadge, styles.labelBadgeFallback, { borderColor: theme.warning, backgroundColor: isDark ? "rgba(90, 200, 250, 0.15)" : "rgba(90, 200, 250, 0.1)" }]}>
+              <ThemedText style={[styles.labelText, { color: theme.warning }]}>Before</ThemedText>
+            </View>
+          )}
+        </View>
+        <View style={[styles.comparisonImage, { borderColor: theme.warning }]}>
+          <Image
+            source={{ uri: beforePhoto.processedImageUrl }}
+            style={styles.image}
+            contentFit="cover"
+          />
+        </View>
+      </View>
+
+      <View style={styles.comparisonColumn}>
+        <View style={styles.labelContainer}>
+          {Platform.OS === "ios" ? (
+            <BlurView intensity={60} tint={isDark ? "dark" : "light"} style={[styles.labelBadge, { borderColor: theme.success }]}>
+              <ThemedText style={[styles.labelText, { color: theme.success }]}>After</ThemedText>
+            </BlurView>
+          ) : (
+            <View style={[styles.labelBadge, styles.labelBadgeFallback, { borderColor: theme.success, backgroundColor: isDark ? "rgba(52, 199, 89, 0.15)" : "rgba(52, 199, 89, 0.1)" }]}>
+              <ThemedText style={[styles.labelText, { color: theme.success }]}>After</ThemedText>
+            </View>
+          )}
+        </View>
+        <View style={[styles.comparisonImage, { borderColor: theme.success }]}>
+          <Image
+            source={{ uri: afterPhoto.processedImageUrl }}
+            style={styles.image}
+            contentFit="cover"
+          />
+        </View>
+      </View>
+    </View>
+  );
+
+  const renderStacked = () => (
+    <View style={styles.stackedContainer}>
+      <View style={[styles.stackedImageContainer, { borderColor: theme.warning }]}>
+        <ThemedText style={[styles.stackedLabel, { color: theme.warning }]}>Before</ThemedText>
+        <Image
+          source={{ uri: beforePhoto.processedImageUrl }}
+          style={styles.stackedImage}
+          contentFit="cover"
+        />
+      </View>
+
+      <View style={styles.stackedArrow}>
+        <Feather name="arrow-down" size={28} color={theme.tabIconSelected} />
+      </View>
+
+      <View style={[styles.stackedImageContainer, { borderColor: theme.success }]}>
+        <ThemedText style={[styles.stackedLabel, { color: theme.success }]}>After</ThemedText>
+        <Image
+          source={{ uri: afterPhoto.processedImageUrl }}
+          style={styles.stackedImage}
+          contentFit="cover"
+        />
+      </View>
+    </View>
+  );
+
+  const renderSlider = () => (
+    <View style={styles.sliderContainer}>
+      <View style={styles.sliderImageWrapper}>
+        <Image
+          source={{ uri: beforePhoto.processedImageUrl }}
+          style={styles.sliderImage}
+          contentFit="cover"
+        />
+        <Animated.View style={[styles.sliderOverlay, afterOverlayStyle]}>
+          <Image
+            source={{ uri: afterPhoto.processedImageUrl }}
+            style={[styles.sliderImage, { position: "absolute", left: 0 }]}
+            contentFit="cover"
+          />
+        </Animated.View>
+        <Animated.View style={[styles.sliderHandle, sliderStyle]}>
+          <View style={[styles.sliderHandleBar, { backgroundColor: theme.tabIconSelected }]} />
+        </Animated.View>
+      </View>
+      <View style={styles.sliderLabels}>
+        <ThemedText style={[styles.sliderLabel, { color: theme.warning }]}>Before</ThemedText>
+        <ThemedText style={[styles.sliderLabel, { color: theme.success }]}>After</ThemedText>
+      </View>
+    </View>
+  );
+
   return (
     <ThemedView style={styles.container}>
       <ScrollView
         contentContainerStyle={[
           styles.content,
           {
-            paddingTop: Spacing.xl,
+            paddingTop: Spacing.lg,
             paddingBottom: tabBarHeight + Spacing.xl,
           },
         ]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.pairContainer}>
-          <View style={styles.photoSection}>
-            <ThemedText style={[styles.label, { color: theme.warning }]}>Before</ThemedText>
-            <View style={[styles.imageContainer, { backgroundColor: theme.cardBackground, borderColor: theme.warning }]}>
-              <Image
-                source={{ uri: beforePhoto.processedImageUrl }}
-                style={styles.image}
-                contentFit="contain"
-              />
-            </View>
-          </View>
-
-          <View style={styles.arrowContainer}>
-            <Feather name="arrow-down" size={32} color={theme.textSecondary} />
-          </View>
-
-          <View style={styles.photoSection}>
-            <ThemedText style={[styles.label, { color: theme.success }]}>After</ThemedText>
-            <View style={[styles.imageContainer, { backgroundColor: theme.cardBackground, borderColor: theme.success }]}>
-              <Image
-                source={{ uri: afterPhoto.processedImageUrl }}
-                style={styles.image}
-                contentFit="contain"
-              />
-            </View>
-          </View>
+        <View style={styles.viewModeToggle}>
+          <Pressable onPress={cycleViewMode} style={styles.viewModeButton}>
+            {Platform.OS === "ios" ? (
+              <BlurView intensity={50} tint={isDark ? "dark" : "light"} style={styles.viewModeBlur}>
+                <Feather
+                  name={viewMode === "side-by-side" ? "columns" : viewMode === "stacked" ? "layers" : "sliders"}
+                  size={18}
+                  color={theme.tabIconSelected}
+                />
+                <ThemedText style={[styles.viewModeText, { color: theme.tabIconSelected }]}>
+                  {viewMode === "side-by-side" ? "Side by Side" : viewMode === "stacked" ? "Stacked" : "Slider"}
+                </ThemedText>
+              </BlurView>
+            ) : (
+              <View style={[styles.viewModeBlur, { backgroundColor: isDark ? "rgba(60, 60, 67, 0.5)" : "rgba(120, 120, 128, 0.2)" }]}>
+                <Feather
+                  name={viewMode === "side-by-side" ? "columns" : viewMode === "stacked" ? "layers" : "sliders"}
+                  size={18}
+                  color={theme.tabIconSelected}
+                />
+                <ThemedText style={[styles.viewModeText, { color: theme.tabIconSelected }]}>
+                  {viewMode === "side-by-side" ? "Side by Side" : viewMode === "stacked" ? "Stacked" : "Slider"}
+                </ThemedText>
+              </View>
+            )}
+          </Pressable>
         </View>
 
-        <View style={[styles.metadataSection, { backgroundColor: theme.backgroundDefault }]}>
+        {viewMode === "side-by-side" && renderSideBySide()}
+        {viewMode === "stacked" && renderStacked()}
+        {viewMode === "slider" && renderSlider()}
+
+        {improvementScore ? (
+          <GlassCard style={styles.scoreCard}>
+            <View style={styles.scoreContent}>
+              <ThemedText style={[styles.scoreTitle, { color: theme.textSecondary }]}>
+                Improvement Score
+              </ThemedText>
+              <ThemedText style={[styles.scoreValue, { color: theme.tabIconSelected }]}>
+                {percentage > 0 ? "+" : ""}{percentage}%
+              </ThemedText>
+              <ThemedText style={[styles.scoreConfidence, { color: theme.textTertiary }]}>
+                95% CI = {percentage - 3}% - {percentage + 3}%
+              </ThemedText>
+            </View>
+          </GlassCard>
+        ) : null}
+
+        <GlassCard style={styles.metadataCard}>
           <View style={styles.metadataRow}>
+            <Feather name="user" size={18} color={theme.textSecondary} />
             <ThemedText style={[styles.metadataLabel, { color: theme.textSecondary }]}>
               Initials
             </ThemedText>
             <ThemedText style={styles.metadataValue}>{beforePhoto.initials}</ThemedText>
           </View>
 
+          <View style={styles.metadataDivider} />
+
           <View style={styles.metadataRow}>
+            <Feather name="map-pin" size={18} color={theme.textSecondary} />
             <ThemedText style={[styles.metadataLabel, { color: theme.textSecondary }]}>
-              Location Code
+              Location
             </ThemedText>
             <ThemedText style={styles.metadataValue}>{beforePhoto.locationCode}</ThemedText>
           </View>
-        </View>
+        </GlassCard>
       </ScrollView>
     </ThemedView>
   );
@@ -173,48 +340,174 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: Spacing.lg,
-    gap: Spacing.xl,
+    gap: Spacing.lg,
   },
-  pairContainer: {
+  viewModeToggle: {
     alignItems: "center",
-    gap: Spacing.md,
   },
-  photoSection: {
+  viewModeButton: {
+    borderRadius: BorderRadius.full,
+    overflow: "hidden",
+  },
+  viewModeBlur: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.full,
+  },
+  viewModeText: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  sideBySideContainer: {
+    flexDirection: "row",
+    gap: Spacing.lg,
+    justifyContent: "center",
+  },
+  comparisonColumn: {
     alignItems: "center",
     gap: Spacing.sm,
   },
-  label: {
-    ...Typography.h3,
-    fontWeight: "700",
+  labelContainer: {
+    borderRadius: BorderRadius.full,
+    overflow: "hidden",
   },
-  imageContainer: {
-    borderWidth: 3,
-    borderRadius: BorderRadius.md,
-    padding: Spacing.sm,
+  labelBadge: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
+    borderWidth: 1.5,
+    borderRadius: BorderRadius.full,
+  },
+  labelBadgeFallback: {
+    overflow: "hidden",
+  },
+  labelText: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  comparisonImage: {
+    width: COMPARISON_IMAGE_SIZE,
+    height: COMPARISON_IMAGE_SIZE * 1.3,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 2,
     overflow: "hidden",
   },
   image: {
-    width: 180,
-    height: 220,
+    width: "100%",
+    height: "100%",
   },
-  arrowContainer: {
+  stackedContainer: {
+    alignItems: "center",
+    gap: Spacing.sm,
+  },
+  stackedImageContainer: {
+    width: SCREEN_WIDTH - Spacing.lg * 2,
+    height: (SCREEN_WIDTH - Spacing.lg * 2) * 0.7,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 2,
+    overflow: "hidden",
+    position: "relative",
+  },
+  stackedLabel: {
+    position: "absolute",
+    top: Spacing.sm,
+    left: Spacing.sm,
+    fontSize: 14,
+    fontWeight: "700",
+    zIndex: 1,
+    textShadowColor: "rgba(0, 0, 0, 0.5)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
+  stackedImage: {
+    width: "100%",
+    height: "100%",
+  },
+  stackedArrow: {
     paddingVertical: Spacing.xs,
   },
-  metadataSection: {
-    padding: Spacing.lg,
-    borderRadius: BorderRadius.sm,
+  sliderContainer: {
+    gap: Spacing.sm,
+  },
+  sliderImageWrapper: {
+    width: SCREEN_WIDTH - Spacing.lg * 2,
+    height: (SCREEN_WIDTH - Spacing.lg * 2) * 1.2,
+    borderRadius: BorderRadius.lg,
+    overflow: "hidden",
+    position: "relative",
+  },
+  sliderImage: {
+    width: SCREEN_WIDTH - Spacing.lg * 2,
+    height: (SCREEN_WIDTH - Spacing.lg * 2) * 1.2,
+  },
+  sliderOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    height: "100%",
+    overflow: "hidden",
+  },
+  sliderHandle: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    width: 4,
+    marginLeft: -2,
+    justifyContent: "center",
+  },
+  sliderHandleBar: {
+    width: 4,
+    height: "100%",
+    borderRadius: 2,
+  },
+  sliderLabels: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingHorizontal: Spacing.sm,
+  },
+  sliderLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  scoreCard: {
+    marginTop: Spacing.sm,
+  },
+  scoreContent: {
+    alignItems: "center",
+    gap: Spacing.xs,
+  },
+  scoreTitle: {
+    fontSize: 12,
+    textTransform: "uppercase",
+    letterSpacing: 1,
+  },
+  scoreValue: {
+    fontSize: 36,
+    fontWeight: "800",
+  },
+  scoreConfidence: {
+    fontSize: 12,
+  },
+  metadataCard: {
     gap: Spacing.md,
   },
   metadataRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    gap: Spacing.md,
   },
   metadataLabel: {
+    flex: 1,
     ...Typography.body,
   },
   metadataValue: {
     ...Typography.body,
     fontWeight: "600",
+  },
+  metadataDivider: {
+    height: 1,
+    backgroundColor: "rgba(128, 128, 128, 0.2)",
   },
 });

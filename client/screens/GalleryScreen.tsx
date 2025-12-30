@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   View,
   StyleSheet,
@@ -7,18 +7,28 @@ import {
   TextInput,
   RefreshControl,
   ActivityIndicator,
+  ScrollView,
+  Platform,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
+import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
 import { Feather } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useQuery } from "@tanstack/react-query";
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from "react-native-reanimated";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
+import { FilterChip } from "@/components/FilterChip";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius, Typography } from "@/constants/theme";
+import { hapticFeedback } from "@/lib/haptics";
 import type { GalleryStackParamList } from "@/navigation/GalleryStackNavigator";
 import type { Photo } from "@shared/schema";
 
@@ -28,12 +38,17 @@ interface PhotosResponse {
   photos: Photo[];
 }
 
+type FilterType = "all" | "before" | "after" | "linked" | "unlinked";
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
 export default function GalleryScreen() {
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const navigation = useNavigation<NavigationProp>();
   const [searchQuery, setSearchQuery] = useState("");
+  const [activeFilter, setActiveFilter] = useState<FilterType>("all");
 
   const { data, isLoading, refetch, isRefetching } = useQuery<PhotosResponse>({
     queryKey: ["/api/photos"],
@@ -41,16 +56,38 @@ export default function GalleryScreen() {
 
   const photos = data?.photos || [];
 
-  const filteredPhotos = photos.filter((photo) => {
-    if (!searchQuery) return true;
-    const query = searchQuery.toUpperCase();
-    return (
-      photo.initials.toUpperCase().includes(query) ||
-      photo.locationCode.toUpperCase().includes(query)
-    );
-  });
+  const uniqueInitials = useMemo(() => {
+    const initials = new Set(photos.map((p) => p.initials));
+    return Array.from(initials).sort();
+  }, [photos]);
+
+  const filteredPhotos = useMemo(() => {
+    return photos.filter((photo) => {
+      if (searchQuery) {
+        const query = searchQuery.toUpperCase();
+        const matchesSearch =
+          photo.initials.toUpperCase().includes(query) ||
+          photo.locationCode.toUpperCase().includes(query);
+        if (!matchesSearch) return false;
+      }
+
+      switch (activeFilter) {
+        case "before":
+          return photo.beforeAfter === "before";
+        case "after":
+          return photo.beforeAfter === "after";
+        case "linked":
+          return photo.linkedPhotoId !== null;
+        case "unlinked":
+          return photo.linkedPhotoId === null;
+        default:
+          return true;
+      }
+    });
+  }, [photos, searchQuery, activeFilter]);
 
   const handlePhotoPress = (photo: Photo) => {
+    hapticFeedback.light();
     if (photo.linkedPhotoId) {
       navigation.navigate("LinkedPair", {
         photoId: photo.id,
@@ -61,45 +98,22 @@ export default function GalleryScreen() {
     }
   };
 
+  const handleFilterChange = (filter: FilterType) => {
+    setActiveFilter(filter);
+  };
+
   const renderPhoto = ({ item }: { item: Photo }) => {
     const borderColor =
       item.beforeAfter === "before" ? theme.warning : theme.success;
 
     return (
-      <Pressable
-        style={({ pressed }) => [
-          styles.photoCard,
-          { backgroundColor: theme.cardBackground },
-          pressed && styles.photoCardPressed,
-        ]}
+      <PhotoCard
+        photo={item}
+        borderColor={borderColor}
+        theme={theme}
+        isDark={isDark}
         onPress={() => handlePhotoPress(item)}
-      >
-        <View style={[styles.photoImageContainer, { borderColor, borderWidth: 2 }]}>
-          <Image
-            source={{ uri: item.processedImageUrl }}
-            style={styles.photoImage}
-            contentFit="cover"
-          />
-          {item.linkedPhotoId && (
-            <View style={[styles.linkBadge, { backgroundColor: theme.tabIconSelected }]}>
-              <Feather name="link" size={12} color="#FFFFFF" />
-            </View>
-          )}
-        </View>
-        <View style={styles.photoInfo}>
-          <ThemedText style={styles.initials}>{item.initials}</ThemedText>
-          <View
-            style={[
-              styles.typeBadge,
-              { backgroundColor: item.beforeAfter === "before" ? theme.warning : theme.success },
-            ]}
-          >
-            <ThemedText style={styles.typeBadgeText}>
-              {item.beforeAfter === "before" ? "B" : "A"}
-            </ThemedText>
-          </View>
-        </View>
-      </Pressable>
+      />
     );
   };
 
@@ -117,22 +131,91 @@ export default function GalleryScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <View style={[styles.searchContainer, { borderBottomColor: theme.border }]}>
-        <View style={[styles.searchBar, { backgroundColor: theme.backgroundDefault }]}>
-          <Feather name="search" size={18} color={theme.textSecondary} />
-          <TextInput
-            style={[styles.searchInput, { color: theme.text }]}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            placeholder="Search by initials or location..."
-            placeholderTextColor={theme.textTertiary}
-          />
-          {searchQuery.length > 0 && (
-            <Pressable onPress={() => setSearchQuery("")}>
-              <Feather name="x" size={18} color={theme.textSecondary} />
-            </Pressable>
+      <View style={styles.searchContainer}>
+        <View style={styles.searchBarWrapper}>
+          {Platform.OS === "ios" ? (
+            <BlurView
+              intensity={60}
+              tint={isDark ? "dark" : "light"}
+              style={[styles.searchBar, styles.glassSearchBar]}
+            >
+              <Feather name="search" size={18} color={theme.textSecondary} />
+              <TextInput
+                style={[styles.searchInput, { color: theme.text }]}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                placeholder="Search initials or location..."
+                placeholderTextColor={theme.textTertiary}
+              />
+              {searchQuery.length > 0 ? (
+                <Pressable onPress={() => setSearchQuery("")}>
+                  <Feather name="x" size={18} color={theme.textSecondary} />
+                </Pressable>
+              ) : null}
+            </BlurView>
+          ) : (
+            <View
+              style={[
+                styles.searchBar,
+                {
+                  backgroundColor: isDark
+                    ? "rgba(60, 60, 67, 0.5)"
+                    : "rgba(120, 120, 128, 0.16)",
+                },
+              ]}
+            >
+              <Feather name="search" size={18} color={theme.textSecondary} />
+              <TextInput
+                style={[styles.searchInput, { color: theme.text }]}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                placeholder="Search initials or location..."
+                placeholderTextColor={theme.textTertiary}
+              />
+              {searchQuery.length > 0 ? (
+                <Pressable onPress={() => setSearchQuery("")}>
+                  <Feather name="x" size={18} color={theme.textSecondary} />
+                </Pressable>
+              ) : null}
+            </View>
           )}
         </View>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterChips}
+        >
+          <FilterChip
+            label="All"
+            selected={activeFilter === "all"}
+            onPress={() => handleFilterChange("all")}
+          />
+          <FilterChip
+            label="Before"
+            selected={activeFilter === "before"}
+            onPress={() => handleFilterChange("before")}
+            icon="arrow-left"
+          />
+          <FilterChip
+            label="After"
+            selected={activeFilter === "after"}
+            onPress={() => handleFilterChange("after")}
+            icon="arrow-right"
+          />
+          <FilterChip
+            label="Linked"
+            selected={activeFilter === "linked"}
+            onPress={() => handleFilterChange("linked")}
+            icon="link"
+          />
+          <FilterChip
+            label="Unlinked"
+            selected={activeFilter === "unlinked"}
+            onPress={() => handleFilterChange("unlinked")}
+            icon="link-2"
+          />
+        </ScrollView>
       </View>
 
       {isLoading ? (
@@ -165,26 +248,142 @@ export default function GalleryScreen() {
   );
 }
 
+interface PhotoCardProps {
+  photo: Photo;
+  borderColor: string;
+  theme: any;
+  isDark: boolean;
+  onPress: () => void;
+}
+
+function PhotoCard({ photo, borderColor, theme, isDark, onPress }: PhotoCardProps) {
+  const scale = useSharedValue(1);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  const handlePressIn = () => {
+    scale.value = withSpring(0.96, { damping: 15, stiffness: 150 });
+  };
+
+  const handlePressOut = () => {
+    scale.value = withSpring(1, { damping: 15, stiffness: 150 });
+  };
+
+  return (
+    <AnimatedPressable
+      style={[styles.photoCard, animatedStyle]}
+      onPress={onPress}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+    >
+      <View style={styles.photoCardInner}>
+        {Platform.OS === "ios" ? (
+          <BlurView
+            intensity={40}
+            tint={isDark ? "dark" : "light"}
+            style={styles.photoCardBackground}
+          >
+            <View style={[styles.photoImageContainer, { borderColor, borderWidth: 2 }]}>
+              <Image
+                source={{ uri: photo.processedImageUrl }}
+                style={styles.photoImage}
+                contentFit="cover"
+              />
+              {photo.linkedPhotoId ? (
+                <View style={[styles.linkBadge, { backgroundColor: theme.tabIconSelected }]}>
+                  <Feather name="link" size={12} color="#FFFFFF" />
+                </View>
+              ) : null}
+            </View>
+            <View style={styles.photoInfo}>
+              <ThemedText style={styles.initials}>{photo.initials}</ThemedText>
+              <View
+                style={[
+                  styles.typeBadge,
+                  { backgroundColor: photo.beforeAfter === "before" ? theme.warning : theme.success },
+                ]}
+              >
+                <ThemedText style={styles.typeBadgeText}>
+                  {photo.beforeAfter === "before" ? "B" : "A"}
+                </ThemedText>
+              </View>
+            </View>
+          </BlurView>
+        ) : (
+          <View
+            style={[
+              styles.photoCardBackground,
+              {
+                backgroundColor: isDark
+                  ? "rgba(44, 44, 46, 0.9)"
+                  : "rgba(255, 255, 255, 0.9)",
+              },
+            ]}
+          >
+            <View style={[styles.photoImageContainer, { borderColor, borderWidth: 2 }]}>
+              <Image
+                source={{ uri: photo.processedImageUrl }}
+                style={styles.photoImage}
+                contentFit="cover"
+              />
+              {photo.linkedPhotoId ? (
+                <View style={[styles.linkBadge, { backgroundColor: theme.tabIconSelected }]}>
+                  <Feather name="link" size={12} color="#FFFFFF" />
+                </View>
+              ) : null}
+            </View>
+            <View style={styles.photoInfo}>
+              <ThemedText style={styles.initials}>{photo.initials}</ThemedText>
+              <View
+                style={[
+                  styles.typeBadge,
+                  { backgroundColor: photo.beforeAfter === "before" ? theme.warning : theme.success },
+                ]}
+              >
+                <ThemedText style={styles.typeBadgeText}>
+                  {photo.beforeAfter === "before" ? "B" : "A"}
+                </ThemedText>
+              </View>
+            </View>
+          </View>
+        )}
+      </View>
+    </AnimatedPressable>
+  );
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
   searchContainer: {
+    paddingTop: Spacing.sm,
+    gap: Spacing.sm,
+  },
+  searchBarWrapper: {
     paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.sm,
-    borderBottomWidth: 1,
   },
   searchBar: {
     flexDirection: "row",
     alignItems: "center",
-    height: 40,
-    borderRadius: BorderRadius.xs,
-    paddingHorizontal: Spacing.sm,
+    height: 44,
+    borderRadius: BorderRadius.sm,
+    paddingHorizontal: Spacing.md,
     gap: Spacing.sm,
+  },
+  glassSearchBar: {
+    overflow: "hidden",
   },
   searchInput: {
     flex: 1,
     ...Typography.body,
+  },
+  filterChips: {
+    paddingHorizontal: Spacing.lg,
+    gap: Spacing.sm,
+    paddingBottom: Spacing.sm,
   },
   loadingContainer: {
     flex: 1,
@@ -201,12 +400,15 @@ const styles = StyleSheet.create({
   photoCard: {
     flex: 1,
     margin: Spacing.xs,
-    borderRadius: BorderRadius.sm,
-    overflow: "hidden",
   },
-  photoCardPressed: {
-    transform: [{ scale: 0.98 }],
-    opacity: 0.9,
+  photoCardInner: {
+    borderRadius: BorderRadius.md,
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.1)",
+  },
+  photoCardBackground: {
+    padding: Spacing.sm,
   },
   photoImageContainer: {
     aspectRatio: 3 / 4,
@@ -231,7 +433,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    padding: Spacing.sm,
+    paddingTop: Spacing.sm,
   },
   initials: {
     ...Typography.h4,

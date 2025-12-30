@@ -1,26 +1,31 @@
 import React, { useState, useRef, useEffect } from "react";
-import { View, StyleSheet, Pressable, Platform, Alert, Dimensions } from "react-native";
+import { View, StyleSheet, Pressable, Platform, Alert, Dimensions, FlatList } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
+import { BlurView } from "expo-blur";
 import { CameraView, CameraType, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
 import { Feather } from "@expo/vector-icons";
-import Animated, { 
-  useSharedValue, 
-  useAnimatedStyle, 
-  withRepeat, 
+import { Image } from "expo-image";
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withRepeat,
   withTiming,
   withSequence,
-  Easing 
+  withSpring,
+  Easing,
 } from "react-native-reanimated";
 import Svg, { Defs, Rect, Mask, Ellipse } from "react-native-svg";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
+import { GlassButton } from "@/components/GlassButton";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
+import { hapticFeedback } from "@/lib/haptics";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -28,18 +33,28 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 const OVAL_WIDTH = SCREEN_WIDTH * 0.7;
 const OVAL_HEIGHT = OVAL_WIDTH * 1.35;
 
+interface SelectedImage {
+  uri: string;
+  base64: string;
+}
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
 export default function CameraScreen() {
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const navigation = useNavigation<NavigationProp>();
   const [facing, setFacing] = useState<CameraType>("front");
   const [flash, setFlash] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
+  const [batchImages, setBatchImages] = useState<SelectedImage[]>([]);
+  const [showBatchPanel, setShowBatchPanel] = useState(false);
   const cameraRef = useRef<CameraView>(null);
   const [permission, requestPermission] = useCameraPermissions();
 
   const borderOpacity = useSharedValue(0.6);
+  const batchPanelHeight = useSharedValue(0);
 
   useEffect(() => {
     borderOpacity.value = withRepeat(
@@ -52,21 +67,33 @@ export default function CameraScreen() {
     );
   }, []);
 
+  useEffect(() => {
+    batchPanelHeight.value = withSpring(showBatchPanel ? 140 : 0, { damping: 15, stiffness: 150 });
+  }, [showBatchPanel]);
+
   const borderAnimatedStyle = useAnimatedStyle(() => ({
     opacity: borderOpacity.value,
   }));
 
+  const batchPanelStyle = useAnimatedStyle(() => ({
+    height: batchPanelHeight.value,
+    opacity: batchPanelHeight.value > 10 ? 1 : 0,
+  }));
+
   const toggleFacing = () => {
+    hapticFeedback.light();
     setFacing((current) => (current === "back" ? "front" : "back"));
   };
 
   const toggleFlash = () => {
+    hapticFeedback.light();
     setFlash((current) => !current);
   };
 
   const takePhoto = async () => {
     if (!cameraRef.current || isCapturing) return;
 
+    hapticFeedback.medium();
     setIsCapturing(true);
     try {
       const photo = await cameraRef.current.takePictureAsync({
@@ -75,17 +102,54 @@ export default function CameraScreen() {
       });
 
       if (photo?.base64) {
-        navigation.navigate("Processing", { imageBase64: photo.base64 });
+        if (showBatchPanel) {
+          setBatchImages((prev) => [...prev, { uri: photo.uri, base64: photo.base64! }]);
+          hapticFeedback.success();
+        } else {
+          navigation.navigate("Processing", { imageBase64: photo.base64 });
+        }
       }
     } catch (error) {
       console.error("Error taking photo:", error);
+      hapticFeedback.error();
       Alert.alert("Error", "Failed to capture photo. Please try again.");
     } finally {
       setIsCapturing(false);
     }
   };
 
-  const pickImage = async () => {
+  const pickImages = async () => {
+    hapticFeedback.light();
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsMultipleSelection: true,
+        selectionLimit: 10,
+        quality: 0.8,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets.length > 0) {
+        if (result.assets.length === 1 && result.assets[0]?.base64) {
+          navigation.navigate("Processing", { imageBase64: result.assets[0].base64 });
+        } else {
+          const images = result.assets
+            .filter((asset) => asset.base64)
+            .map((asset) => ({ uri: asset.uri, base64: asset.base64! }));
+          setBatchImages(images);
+          setShowBatchPanel(true);
+          hapticFeedback.success();
+        }
+      }
+    } catch (error) {
+      console.error("Error picking images:", error);
+      hapticFeedback.error();
+      Alert.alert("Error", "Failed to pick images. Please try again.");
+    }
+  };
+
+  const pickSingleImage = async () => {
+    hapticFeedback.light();
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images"],
@@ -100,7 +164,33 @@ export default function CameraScreen() {
       }
     } catch (error) {
       console.error("Error picking image:", error);
+      hapticFeedback.error();
       Alert.alert("Error", "Failed to pick image. Please try again.");
+    }
+  };
+
+  const processBatch = () => {
+    if (batchImages.length === 0) return;
+    hapticFeedback.medium();
+    navigation.navigate("Processing", { imageBase64: batchImages[0].base64 });
+    setBatchImages([]);
+    setShowBatchPanel(false);
+  };
+
+  const removeFromBatch = (index: number) => {
+    hapticFeedback.light();
+    setBatchImages((prev) => prev.filter((_, i) => i !== index));
+    if (batchImages.length <= 1) {
+      setShowBatchPanel(false);
+    }
+  };
+
+  const toggleBatchMode = () => {
+    hapticFeedback.selection();
+    if (showBatchPanel && batchImages.length === 0) {
+      setShowBatchPanel(false);
+    } else {
+      setShowBatchPanel(!showBatchPanel);
     }
   };
 
@@ -133,29 +223,19 @@ export default function CameraScreen() {
           <ThemedText style={[styles.permissionText, { color: theme.textSecondary }]}>
             FaceSnap needs camera access to capture and process photos.
           </ThemedText>
-          <Pressable
-            style={({ pressed }) => [
-              styles.permissionButton,
-              { backgroundColor: theme.tabIconSelected },
-              pressed && styles.buttonPressed,
-            ]}
+          <GlassButton
+            title="Enable Camera"
+            icon="camera"
             onPress={requestPermission}
-          >
-            <ThemedText style={styles.permissionButtonText}>Enable Camera</ThemedText>
-          </Pressable>
-          <Pressable
-            style={({ pressed }) => [
-              styles.uploadButton,
-              { borderColor: theme.border },
-              pressed && styles.buttonPressed,
-            ]}
-            onPress={pickImage}
-          >
-            <Feather name="upload" size={20} color={theme.tabIconSelected} />
-            <ThemedText style={[styles.uploadButtonText, { color: theme.tabIconSelected }]}>
-              Upload from Library
-            </ThemedText>
-          </Pressable>
+            style={styles.glassButtonStyle}
+          />
+          <GlassButton
+            title="Upload from Library"
+            icon="upload"
+            variant="secondary"
+            onPress={pickSingleImage}
+            style={styles.glassButtonStyle}
+          />
         </View>
       </ThemedView>
     );
@@ -178,19 +258,19 @@ export default function CameraScreen() {
           <ThemedText style={[styles.permissionText, { color: theme.textSecondary }]}>
             Camera works best in the Expo Go app. Scan the QR code to open on your device.
           </ThemedText>
-          <Pressable
-            style={({ pressed }) => [
-              styles.uploadButton,
-              { borderColor: theme.border },
-              pressed && styles.buttonPressed,
-            ]}
-            onPress={pickImage}
-          >
-            <Feather name="upload" size={20} color={theme.tabIconSelected} />
-            <ThemedText style={[styles.uploadButtonText, { color: theme.tabIconSelected }]}>
-              Upload from Library
-            </ThemedText>
-          </Pressable>
+          <GlassButton
+            title="Upload Single Photo"
+            icon="image"
+            onPress={pickSingleImage}
+            style={styles.glassButtonStyle}
+          />
+          <GlassButton
+            title="Batch Upload"
+            icon="layers"
+            variant="secondary"
+            onPress={pickImages}
+            style={styles.glassButtonStyle}
+          />
         </View>
       </ThemedView>
     );
@@ -206,47 +286,44 @@ export default function CameraScreen() {
         enableTorch={flash}
       />
 
-      {/* SVG Oval Cutout Mask */}
       <View style={styles.overlayContainer} pointerEvents="none">
         <Svg width={SCREEN_WIDTH} height={SCREEN_HEIGHT} style={StyleSheet.absoluteFill}>
           <Defs>
             <Mask id="ovalMask">
               <Rect x="0" y="0" width={SCREEN_WIDTH} height={SCREEN_HEIGHT} fill="white" />
-              <Ellipse 
-                cx={SCREEN_WIDTH / 2} 
-                cy={ovalCenterY} 
-                rx={OVAL_WIDTH / 2} 
-                ry={OVAL_HEIGHT / 2} 
-                fill="black" 
+              <Ellipse
+                cx={SCREEN_WIDTH / 2}
+                cy={ovalCenterY}
+                rx={OVAL_WIDTH / 2}
+                ry={OVAL_HEIGHT / 2}
+                fill="black"
               />
             </Mask>
           </Defs>
-          <Rect 
-            x="0" 
-            y="0" 
-            width={SCREEN_WIDTH} 
-            height={SCREEN_HEIGHT} 
-            fill="rgba(0, 0, 0, 0.6)" 
-            mask="url(#ovalMask)" 
+          <Rect
+            x="0"
+            y="0"
+            width={SCREEN_WIDTH}
+            height={SCREEN_HEIGHT}
+            fill="rgba(0, 0, 0, 0.6)"
+            mask="url(#ovalMask)"
           />
         </Svg>
-        
-        {/* Animated Oval Border */}
+
         <Animated.View style={[StyleSheet.absoluteFill, borderAnimatedStyle]}>
           <Svg width={SCREEN_WIDTH} height={SCREEN_HEIGHT}>
-            <Ellipse 
-              cx={SCREEN_WIDTH / 2} 
-              cy={ovalCenterY} 
-              rx={OVAL_WIDTH / 2} 
-              ry={OVAL_HEIGHT / 2} 
-              fill="none" 
-              stroke="#FFFFFF" 
+            <Ellipse
+              cx={SCREEN_WIDTH / 2}
+              cy={ovalCenterY}
+              rx={OVAL_WIDTH / 2}
+              ry={OVAL_HEIGHT / 2}
+              fill="none"
+              stroke="#FFFFFF"
               strokeWidth={3}
             />
           </Svg>
         </Animated.View>
-        
-        {/* Face positioning hint */}
+
         <View style={[styles.hintContainer, { top: ovalCenterY + OVAL_HEIGHT / 2 + 24 }]}>
           <ThemedText style={styles.hintText}>
             Position your face within the oval
@@ -254,70 +331,211 @@ export default function CameraScreen() {
         </View>
       </View>
 
-      {/* Top Controls */}
       <View
         style={[
           styles.topControls,
           { paddingTop: insets.top + Spacing.md },
         ]}
       >
-        <Pressable
-          style={({ pressed }) => [
-            styles.topButton,
-            pressed && styles.buttonPressed,
-          ]}
+        <GlassIconButton
+          icon={flash ? "zap" : "zap-off"}
           onPress={toggleFlash}
-        >
-          <Feather
-            name={flash ? "zap" : "zap-off"}
-            size={28}
-            color="#FFFFFF"
-          />
-        </Pressable>
+          isDark={isDark}
+        />
 
-        <Pressable
-          style={({ pressed }) => [
-            styles.topButton,
-            pressed && styles.buttonPressed,
-          ]}
+        <GlassIconButton
+          icon="layers"
+          onPress={toggleBatchMode}
+          isDark={isDark}
+          active={showBatchPanel}
+          activeColor={theme.tabIconSelected}
+        />
+
+        <GlassIconButton
+          icon="rotate-cw"
           onPress={toggleFacing}
-        >
-          <Feather name="rotate-cw" size={28} color="#FFFFFF" />
-        </Pressable>
+          isDark={isDark}
+        />
       </View>
 
-      {/* Bottom Controls */}
+      <Animated.View style={[styles.batchPanel, batchPanelStyle]}>
+        {Platform.OS === "ios" ? (
+          <BlurView intensity={80} tint={isDark ? "dark" : "light"} style={styles.batchPanelContent}>
+            <View style={styles.batchHeader}>
+              <ThemedText style={styles.batchTitle}>
+                {batchImages.length} photo{batchImages.length !== 1 ? "s" : ""} selected
+              </ThemedText>
+              {batchImages.length > 0 ? (
+                <Pressable onPress={processBatch} style={styles.processBatchButton}>
+                  <ThemedText style={[styles.processBatchText, { color: theme.tabIconSelected }]}>
+                    Process All
+                  </ThemedText>
+                </Pressable>
+              ) : null}
+            </View>
+            <FlatList
+              data={batchImages}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.batchList}
+              keyExtractor={(_, index) => index.toString()}
+              renderItem={({ item, index }) => (
+                <View style={styles.batchImageContainer}>
+                  <Image source={{ uri: item.uri }} style={styles.batchImage} contentFit="cover" />
+                  <Pressable
+                    style={[styles.removeBatchButton, { backgroundColor: theme.error }]}
+                    onPress={() => removeFromBatch(index)}
+                  >
+                    <Feather name="x" size={12} color="#FFFFFF" />
+                  </Pressable>
+                </View>
+              )}
+            />
+          </BlurView>
+        ) : (
+          <View style={[styles.batchPanelContent, { backgroundColor: isDark ? "rgba(28, 28, 30, 0.95)" : "rgba(255, 255, 255, 0.95)" }]}>
+            <View style={styles.batchHeader}>
+              <ThemedText style={styles.batchTitle}>
+                {batchImages.length} photo{batchImages.length !== 1 ? "s" : ""} selected
+              </ThemedText>
+              {batchImages.length > 0 ? (
+                <Pressable onPress={processBatch} style={styles.processBatchButton}>
+                  <ThemedText style={[styles.processBatchText, { color: theme.tabIconSelected }]}>
+                    Process All
+                  </ThemedText>
+                </Pressable>
+              ) : null}
+            </View>
+            <FlatList
+              data={batchImages}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.batchList}
+              keyExtractor={(_, index) => index.toString()}
+              renderItem={({ item, index }) => (
+                <View style={styles.batchImageContainer}>
+                  <Image source={{ uri: item.uri }} style={styles.batchImage} contentFit="cover" />
+                  <Pressable
+                    style={[styles.removeBatchButton, { backgroundColor: theme.error }]}
+                    onPress={() => removeFromBatch(index)}
+                  >
+                    <Feather name="x" size={12} color="#FFFFFF" />
+                  </Pressable>
+                </View>
+              )}
+            />
+          </View>
+        )}
+      </Animated.View>
+
       <View
         style={[
           styles.bottomControls,
           { paddingBottom: tabBarHeight + Spacing.lg },
         ]}
       >
-        <Pressable
-          style={({ pressed }) => [
-            styles.sideButton,
-            pressed && styles.buttonPressed,
-          ]}
-          onPress={pickImage}
-        >
-          <Feather name="image" size={32} color="#FFFFFF" />
-        </Pressable>
+        <GlassIconButton
+          icon="image"
+          size={56}
+          onPress={pickImages}
+          isDark={isDark}
+        />
 
-        <Pressable
-          style={({ pressed }) => [
-            styles.captureButton,
-            pressed && styles.captureButtonPressed,
-            isCapturing && styles.captureButtonDisabled,
-          ]}
+        <CaptureButton
           onPress={takePhoto}
           disabled={isCapturing}
-        >
-          <View style={styles.captureButtonInner} />
-        </Pressable>
+          batchMode={showBatchPanel}
+          theme={theme}
+        />
 
-        <View style={styles.sideButton} />
+        <View style={{ width: 56 }} />
       </View>
     </View>
+  );
+}
+
+interface GlassIconButtonProps {
+  icon: keyof typeof Feather.glyphMap;
+  onPress: () => void;
+  isDark: boolean;
+  size?: number;
+  active?: boolean;
+  activeColor?: string;
+}
+
+function GlassIconButton({ icon, onPress, isDark, size = 50, active, activeColor }: GlassIconButtonProps) {
+  const scale = useSharedValue(1);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  const handlePressIn = () => {
+    scale.value = withSpring(0.9);
+  };
+
+  const handlePressOut = () => {
+    scale.value = withSpring(1);
+  };
+
+  return (
+    <AnimatedPressable
+      onPress={onPress}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      style={animatedStyle}
+    >
+      <View style={[styles.glassIconButton, { width: size, height: size, borderRadius: size / 2 }]}>
+        {Platform.OS === "ios" ? (
+          <BlurView intensity={60} tint={isDark ? "dark" : "light"} style={[styles.glassIconContent, { borderRadius: size / 2 }]}>
+            <Feather name={icon} size={size * 0.48} color={active && activeColor ? activeColor : "#FFFFFF"} />
+          </BlurView>
+        ) : (
+          <View style={[styles.glassIconContent, { backgroundColor: "rgba(0, 0, 0, 0.4)", borderRadius: size / 2 }]}>
+            <Feather name={icon} size={size * 0.48} color={active && activeColor ? activeColor : "#FFFFFF"} />
+          </View>
+        )}
+      </View>
+    </AnimatedPressable>
+  );
+}
+
+interface CaptureButtonProps {
+  onPress: () => void;
+  disabled: boolean;
+  batchMode: boolean;
+  theme: any;
+}
+
+function CaptureButton({ onPress, disabled, batchMode, theme }: CaptureButtonProps) {
+  const scale = useSharedValue(1);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  const handlePressIn = () => {
+    if (!disabled) {
+      scale.value = withSpring(0.9);
+    }
+  };
+
+  const handlePressOut = () => {
+    scale.value = withSpring(1);
+  };
+
+  return (
+    <AnimatedPressable
+      onPress={onPress}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      disabled={disabled}
+      style={[styles.captureButton, animatedStyle, disabled && styles.captureButtonDisabled]}
+    >
+      <View style={[styles.captureButtonInner, batchMode && { backgroundColor: theme.tabIconSelected }]}>
+        {batchMode ? <Feather name="plus" size={28} color="#FFFFFF" /> : null}
+      </View>
+    </AnimatedPressable>
   );
 }
 
@@ -358,14 +576,6 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.md,
     zIndex: 10,
   },
-  topButton: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: "rgba(0, 0, 0, 0.4)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
   bottomControls: {
     position: "absolute",
     bottom: 0,
@@ -378,10 +588,66 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.md,
     zIndex: 10,
   },
-  sideButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+  batchPanel: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 160,
+    zIndex: 15,
+    overflow: "hidden",
+  },
+  batchPanelContent: {
+    flex: 1,
+    paddingVertical: Spacing.sm,
+  },
+  batchHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: Spacing.lg,
+    marginBottom: Spacing.sm,
+  },
+  batchTitle: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  processBatchButton: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
+  },
+  processBatchText: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  batchList: {
+    paddingHorizontal: Spacing.lg,
+    gap: Spacing.sm,
+  },
+  batchImageContainer: {
+    marginRight: Spacing.sm,
+    position: "relative",
+  },
+  batchImage: {
+    width: 70,
+    height: 90,
+    borderRadius: BorderRadius.sm,
+  },
+  removeBatchButton: {
+    position: "absolute",
+    top: -6,
+    right: -6,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  glassIconButton: {
+    overflow: "hidden",
+  },
+  glassIconContent: {
+    flex: 1,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -392,11 +658,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     justifyContent: "center",
     alignItems: "center",
-    borderWidth: 3,
+    borderWidth: 4,
     borderColor: "rgba(255, 255, 255, 0.3)",
-  },
-  captureButtonPressed: {
-    transform: [{ scale: 0.9 }],
   },
   captureButtonDisabled: {
     opacity: 0.6,
@@ -406,9 +669,8 @@ const styles = StyleSheet.create({
     height: 65,
     borderRadius: 32.5,
     backgroundColor: "#FFFFFF",
-  },
-  buttonPressed: {
-    opacity: 0.6,
+    justifyContent: "center",
+    alignItems: "center",
   },
   permissionContainer: {
     flex: 1,
@@ -429,33 +691,8 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.lg,
     lineHeight: 24,
   },
-  permissionButton: {
-    height: 52,
-    paddingHorizontal: Spacing.xl,
-    borderRadius: BorderRadius.sm,
-    justifyContent: "center",
-    alignItems: "center",
-    minWidth: 200,
-  },
-  permissionButtonText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#FFFFFF",
-  },
-  uploadButton: {
-    flexDirection: "row",
-    height: 52,
-    paddingHorizontal: Spacing.xl,
-    borderRadius: BorderRadius.sm,
-    borderWidth: 2,
-    justifyContent: "center",
-    alignItems: "center",
-    gap: Spacing.sm,
-    marginTop: Spacing.md,
-    minWidth: 200,
-  },
-  uploadButtonText: {
-    fontSize: 16,
-    fontWeight: "600",
+  glassButtonStyle: {
+    marginTop: Spacing.sm,
+    minWidth: 220,
   },
 });
