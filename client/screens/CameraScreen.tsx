@@ -221,7 +221,7 @@ export default function CameraScreen() {
           <Feather name="camera-off" size={64} color={theme.textSecondary} />
           <ThemedText style={styles.permissionTitle}>Camera Access Required</ThemedText>
           <ThemedText style={[styles.permissionText, { color: theme.textSecondary }]}>
-            FaceSnap needs camera access to capture and process photos.
+            DE-ID Face needs camera access to capture and process photos.
           </ThemedText>
           <GlassButton
             title="Enable Camera"

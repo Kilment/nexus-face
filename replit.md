@@ -1,8 +1,8 @@
-# FaceSnap
+# DE-ID Face
 
 ## Overview
 
-FaceSnap is a cross-platform mobile application built with React Native/Expo for facial photo processing and organization. The app allows users to capture photos, process faces using AI-powered anonymization, tag and organize photos, and track before/after comparisons with improvement scoring.
+DE-ID Face is a cross-platform mobile application built with React Native/Expo for facial photo processing, anonymization, and organization. The app allows users to capture photos, process faces using AI-powered anonymization, tag and organize photos, and track before/after comparisons with improvement scoring.
 
 The architecture follows a monorepo structure with a React Native frontend (`client/`) and an Express.js backend (`server/`), sharing types and schemas through a common module (`shared/`).
 

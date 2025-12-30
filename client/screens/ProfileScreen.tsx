@@ -261,7 +261,7 @@ export default function ProfileScreen() {
         </View>
 
         <ThemedText style={[styles.footer, { color: theme.textTertiary }]}>
-          FaceSnap - Process and organize facial photos
+          DE-ID Face - Anonymize and organize facial photos
         </ThemedText>
       </ScrollView>
     </ThemedView>

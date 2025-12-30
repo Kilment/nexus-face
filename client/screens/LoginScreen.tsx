@@ -75,9 +75,12 @@ export default function LoginScreen() {
               </View>
             )}
           </View>
-          <ThemedText style={styles.title}>FaceSnap</ThemedText>
+          <ThemedText style={styles.title}>DE-ID</ThemedText>
+          <ThemedText style={[styles.subtitle, { color: theme.tabIconSelected }]}>
+            Face
+          </ThemedText>
           <ThemedText style={[styles.tagline, { color: theme.textSecondary }]}>
-            Process and organize facial photos
+            Anonymize and organize facial photos
           </ThemedText>
         </View>
 
@@ -113,7 +116,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    gap: Spacing.md,
+    gap: Spacing.xs,
   },
   logoWrapper: {
     borderRadius: 40,
@@ -135,14 +138,22 @@ const styles = StyleSheet.create({
     height: 100,
   },
   title: {
-    fontSize: 36,
+    fontSize: 42,
     fontWeight: "800",
-    letterSpacing: -0.5,
+    letterSpacing: 2,
+  },
+  subtitle: {
+    fontSize: 20,
+    fontWeight: "600",
+    letterSpacing: 4,
+    textTransform: "uppercase",
+    marginTop: -4,
   },
   tagline: {
-    fontSize: 17,
+    fontSize: 16,
     textAlign: "center",
     lineHeight: 24,
+    marginTop: Spacing.md,
   },
   buttonSection: {
     gap: Spacing.lg,

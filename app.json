@@ -1,25 +1,25 @@
 {
   "expo": {
-    "name": "FaceSnap",
-    "slug": "facesnap",
+    "name": "DE-ID Face",
+    "slug": "de-id-face",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "facesnap",
+    "scheme": "deidface",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.facesnap.app",
       "infoPlist": {
-        "NSCameraUsageDescription": "FaceSnap needs camera access to capture photos for face processing.",
-        "NSPhotoLibraryUsageDescription": "FaceSnap needs photo library access to upload images for processing."
+        "NSCameraUsageDescription": "DE-ID Face needs camera access to capture photos for face processing.",
+        "NSPhotoLibraryUsageDescription": "DE-ID Face needs photo library access to upload images for processing."
       }
     },
     "android": {
       "package": "com.facesnap.app",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#0A1628",
         "foregroundImage": "./assets/images/icon.png"
       },
       "edgeToEdgeEnabled": true,
@@ -40,9 +40,9 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff",
+          "backgroundColor": "#0A1628",
           "dark": {
-            "backgroundColor": "#000000"
+            "backgroundColor": "#0A1628"
           }
         }
       ],
@@ -50,13 +50,13 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "FaceSnap needs camera access to capture photos for face processing."
+          "cameraPermission": "DE-ID Face needs camera access to capture photos for face processing."
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "FaceSnap needs photo library access to upload images for processing."
+          "photosPermission": "DE-ID Face needs photo library access to upload images for processing."
         }
       ]
     ],
