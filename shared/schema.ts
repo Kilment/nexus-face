@@ -61,6 +61,8 @@ export const insertPhotoSchema = createInsertSchema(photos).pick({
   beforeAfter: true,
   locationCode: true,
   linkedPhotoId: true,
+  gender: true,
+  ageRange: true,
 });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
