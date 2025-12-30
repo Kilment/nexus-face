@@ -26,6 +26,7 @@ export default function TaggingScreen() {
   const [initials, setInitials] = useState("");
   const [beforeAfter, setBeforeAfter] = useState<"before" | "after">("before");
   const [locationCode, setLocationCode] = useState("");
+  const [weeksAfter, setWeeksAfter] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
   const isFormValid = initials.length >= 2 && initials.length <= 3 && locationCode.length > 0;
@@ -69,6 +70,7 @@ export default function TaggingScreen() {
         initials: initials.toUpperCase(),
         beforeAfter,
         locationCode,
+        weeksAfter: beforeAfter === "after" && weeksAfter ? parseInt(weeksAfter) : null,
       });
 
       queryClient.invalidateQueries({ queryKey: ["/api/photos"] });
@@ -190,6 +192,27 @@ export default function TaggingScreen() {
               autoCapitalize="characters"
             />
           </View>
+
+          {beforeAfter === "after" && (
+            <View style={styles.inputGroup}>
+              <ThemedText style={styles.label}>Weeks After Intervention (Optional)</ThemedText>
+              <TextInput
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: theme.backgroundDefault,
+                    color: theme.text,
+                    borderColor: theme.border,
+                  },
+                ]}
+                value={weeksAfter}
+                onChangeText={(text) => setWeeksAfter(text.replace(/[^0-9]/g, ""))}
+                placeholder="e.g., 2"
+                placeholderTextColor={theme.textTertiary}
+                keyboardType="number-pad"
+              />
+            </View>
+          )}
         </View>
       </KeyboardAwareScrollViewCompat>
     </ThemedView>

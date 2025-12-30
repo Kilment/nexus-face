@@ -303,6 +303,11 @@ function PhotoCard({ photo, borderColor, theme, isDark, onPress }: PhotoCardProp
                   </ThemedText>
                 </View>
               ) : null}
+              {photo.weeksAfter !== null ? (
+                <View style={styles.weeksBadge}>
+                  <ThemedText style={styles.weeksText}>{photo.weeksAfter}W</ThemedText>
+                </View>
+              ) : null}
             </View>
             <View style={styles.photoInfo}>
               <ThemedText style={styles.initials}>{photo.initials}</ThemedText>
@@ -345,6 +350,11 @@ function PhotoCard({ photo, borderColor, theme, isDark, onPress }: PhotoCardProp
                   <ThemedText style={styles.demographicText}>
                     {photo.gender ? `${photo.gender.charAt(0)}` : ""}{photo.ageRange ? ` • ${photo.ageRange}` : ""}{photo.ethnicity ? ` • ${photo.ethnicity}` : ""}
                   </ThemedText>
+                </View>
+              ) : null}
+              {photo.weeksAfter !== null ? (
+                <View style={styles.weeksBadge}>
+                  <ThemedText style={styles.weeksText}>{photo.weeksAfter}W</ThemedText>
                 </View>
               ) : null}
             </View>
@@ -478,6 +488,22 @@ const styles = StyleSheet.create({
   demographicText: {
     fontSize: 10,
     fontWeight: "600",
+    color: "#FFFFFF",
+  },
+  weeksBadge: {
+    position: "absolute",
+    top: Spacing.xs,
+    left: Spacing.xs,
+    backgroundColor: "rgba(0, 122, 255, 0.8)",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.3)",
+  },
+  weeksText: {
+    fontSize: 10,
+    fontWeight: "800",
     color: "#FFFFFF",
   },
   emptyContainer: {

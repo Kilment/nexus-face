@@ -180,7 +180,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/photos", requireAuth, async (req, res) => {
     try {
-      const { processedImageBase64, initials, beforeAfter, locationCode } = req.body;
+      const { processedImageBase64, initials, beforeAfter, locationCode, weeksAfter } = req.body;
       
       if (!processedImageBase64 || !initials || !beforeAfter || !locationCode) {
         return res.status(400).json({ error: "Missing required fields" });
@@ -198,6 +198,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         gender: demographics?.gender,
         ageRange: demographics?.ageRange,
         ethnicity: demographics?.ethnicity,
+        weeksAfter: beforeAfter === "after" ? (weeksAfter ? parseInt(weeksAfter.toString()) : null) : null,
       });
 
       // Autolink logic

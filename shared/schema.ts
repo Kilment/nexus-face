@@ -29,6 +29,7 @@ export const photos = pgTable("photos", {
   gender: varchar("gender", { length: 20 }),
   ageRange: varchar("age_range", { length: 20 }),
   ethnicity: varchar("ethnicity", { length: 50 }),
+  weeksAfter: integer("weeks_after"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -65,6 +66,7 @@ export const insertPhotoSchema = createInsertSchema(photos).pick({
   gender: true,
   ageRange: true,
   ethnicity: true,
+  weeksAfter: true,
 });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
