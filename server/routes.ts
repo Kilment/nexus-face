@@ -194,6 +194,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         locationCode,
       });
 
+      // Autolink logic
+      const linkablePhotos = await storage.getLinkablePhotos(
+        req.session.userId!,
+        photo.initials,
+        photo.beforeAfter,
+        photo.id
+      );
+
+      if (linkablePhotos.length > 0) {
+        // Sort by date to get the most recent one if multiple exist
+        const targetPhoto = linkablePhotos.sort((a, b) => 
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        )[0];
+
+        await storage.updatePhotoLink(photo.id, targetPhoto.id);
+        await storage.updatePhotoLink(targetPhoto.id, photo.id);
+        
+        // Return updated photo with link info
+        const updatedPhoto = await storage.getPhoto(photo.id);
+        return res.json({ photo: updatedPhoto });
+      }
+
       res.json({ photo });
     } catch (error) {
       console.error("Error saving photo:", error);
