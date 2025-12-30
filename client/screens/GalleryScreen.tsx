@@ -296,6 +296,13 @@ function PhotoCard({ photo, borderColor, theme, isDark, onPress }: PhotoCardProp
                   <Feather name="link" size={12} color="#FFFFFF" />
                 </View>
               ) : null}
+              {(photo.gender || photo.ageRange) ? (
+                <View style={styles.demographicBadge}>
+                  <ThemedText style={styles.demographicText}>
+                    {photo.gender ? `${photo.gender.charAt(0)}` : ""}{photo.ageRange ? ` • ${photo.ageRange}` : ""}
+                  </ThemedText>
+                </View>
+              ) : null}
             </View>
             <View style={styles.photoInfo}>
               <ThemedText style={styles.initials}>{photo.initials}</ThemedText>
@@ -331,6 +338,13 @@ function PhotoCard({ photo, borderColor, theme, isDark, onPress }: PhotoCardProp
               {photo.linkedPhotoId ? (
                 <View style={[styles.linkBadge, { backgroundColor: theme.tabIconSelected }]}>
                   <Feather name="link" size={12} color="#FFFFFF" />
+                </View>
+              ) : null}
+              {(photo.gender || photo.ageRange) ? (
+                <View style={styles.demographicBadge}>
+                  <ThemedText style={styles.demographicText}>
+                    {photo.gender ? `${photo.gender.charAt(0)}` : ""}{photo.ageRange ? ` • ${photo.ageRange}` : ""}
+                  </ThemedText>
                 </View>
               ) : null}
             </View>
@@ -448,6 +462,22 @@ const styles = StyleSheet.create({
   typeBadgeText: {
     ...Typography.small,
     fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  demographicBadge: {
+    position: "absolute",
+    bottom: Spacing.xs,
+    left: Spacing.xs,
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    paddingHorizontal: Spacing.xs,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.xs,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.2)",
+  },
+  demographicText: {
+    fontSize: 10,
+    fontWeight: "600",
     color: "#FFFFFF",
   },
   emptyContainer: {

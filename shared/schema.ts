@@ -26,6 +26,8 @@ export const photos = pgTable("photos", {
   locationCode: varchar("location_code", { length: 50 }).notNull(),
   linkedPhotoId: varchar("linked_photo_id"),
   improvementScore: integer("improvement_score"),
+  gender: varchar("gender", { length: 20 }),
+  ageRange: varchar("age_range", { length: 20 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

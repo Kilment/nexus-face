@@ -24,6 +24,35 @@ export interface ImprovementResult {
     low: number;
     high: number;
   };
+  demographics?: {
+    gender: string;
+    ageRange: string;
+  };
+}
+
+export async function detectDemographics(imageBase64: string): Promise<{ gender: string; ageRange: string } | null> {
+  try {
+    const buffer = Buffer.from(imageBase64, "base64");
+    const command = new DetectFacesCommand({
+      Image: { Bytes: buffer },
+      Attributes: ["ALL"],
+    });
+    const result = await rekognitionClient.send(command);
+    if (!result.FaceDetails?.length) return null;
+
+    const face = result.FaceDetails[0];
+    const gender = face.Gender?.Value || "Unknown";
+    const ageLow = face.AgeRange?.Low || 0;
+    const ageHigh = face.AgeRange?.High || 0;
+    
+    return {
+      gender,
+      ageRange: `${ageLow}-${ageHigh}`,
+    };
+  } catch (error) {
+    console.error("Demographics detection error:", error);
+    return null;
+  }
 }
 
 export async function calculateImprovementScore(beforeBase64: string, afterBase64: string): Promise<ImprovementResult> {

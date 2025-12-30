@@ -4,7 +4,7 @@ import session from "express-session";
 import { storage } from "./storage";
 import { processImageForFaceAnonymization } from "./face-processor";
 import { insertPhotoSchema } from "@shared/schema";
-import { calculateImprovementScore } from "./rekognition";
+import { calculateImprovementScore, detectDemographics } from "./rekognition";
 
 declare module "express-session" {
   interface SessionData {
@@ -186,6 +186,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Missing required fields" });
       }
 
+      const demographics = await detectDemographics(processedImageBase64);
+
       const photo = await storage.createPhoto({
         userId: req.session.userId!,
         processedImageUrl: `data:image/png;base64,${processedImageBase64}`,
@@ -193,6 +195,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         initials: initials.toUpperCase(),
         beforeAfter,
         locationCode,
+        gender: demographics?.gender,
+        ageRange: demographics?.ageRange,
       });
 
       // Autolink logic
