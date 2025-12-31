@@ -56,6 +56,7 @@ export default function ProfileScreen() {
   const headerHeight = useHeaderHeight();
   const { theme, isDark } = useTheme();
   const { user, logout } = useAuth();
+  const [isLoggingOut, setIsLoggingOut] = React.useState(false);
 
   const { data: statsData, isLoading: statsLoading } = useQuery<{ stats: UserStats }>({
     queryKey: ["/api/stats"],
@@ -63,7 +64,27 @@ export default function ProfileScreen() {
 
   const stats = statsData?.stats;
 
+  const logoutInProgress = React.useRef(false);
+
+  const performLogout = async () => {
+    if (logoutInProgress.current) return;
+    logoutInProgress.current = true;
+    setIsLoggingOut(true);
+    hapticFeedback.medium();
+    try {
+      await logout();
+      hapticFeedback.success();
+    } catch {
+      hapticFeedback.error();
+      Alert.alert("Logout Failed", "Unable to log out. Please try again.");
+    } finally {
+      logoutInProgress.current = false;
+      setIsLoggingOut(false);
+    }
+  };
+
   const handleLogout = () => {
+    if (isLoggingOut || logoutInProgress.current) return;
     hapticFeedback.warning();
     Alert.alert(
       "Log Out",
@@ -74,8 +95,7 @@ export default function ProfileScreen() {
           text: "Log Out",
           style: "destructive",
           onPress: () => {
-            hapticFeedback.medium();
-            logout();
+            performLogout();
           },
         },
       ]

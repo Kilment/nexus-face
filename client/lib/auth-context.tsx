@@ -4,6 +4,7 @@ import { getApiUrl } from "@/lib/query-client";
 
 interface User {
   id: string;
+  email?: string;
   username: string;
   profileImageUrl: string | null;
 }
@@ -31,7 +32,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const storedUser = await AsyncStorage.getItem(AUTH_STORAGE_KEY);
       if (storedUser) {
         const parsedUser = JSON.parse(storedUser);
-        setUser(parsedUser);
+        try {
+          const response = await fetch(new URL("/api/auth/me", getApiUrl()).toString(), {
+            headers: { "X-User-Id": parsedUser.id },
+          });
+          if (response.ok) {
+            const data = await response.json();
+            await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(data.user));
+            setUser(data.user);
+          } else if (response.status === 401) {
+            await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
+            setUser(null);
+          } else {
+            setUser(parsedUser);
+          }
+        } catch {
+          setUser(parsedUser);
+        }
       } else {
         setUser(null);
       }
@@ -92,10 +109,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     try {
+      const response = await fetch(new URL("/api/auth/logout", getApiUrl()).toString(), {
+        method: "POST",
+      });
+      if (!response.ok) {
+        throw new Error("Logout failed on server");
+      }
       await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
       setUser(null);
     } catch (error) {
       console.error("Logout error:", error);
+      throw error;
     }
   };
 

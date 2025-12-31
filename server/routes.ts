@@ -102,6 +102,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ 
         user: {
           id: user.id,
+          email: user.email,
           username: user.username,
           profileImageUrl: user.profileImageUrl,
         }
@@ -133,6 +134,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({ 
         user: {
           id: user.id,
+          email: user.email,
           username: user.username,
           profileImageUrl: user.profileImageUrl,
         }
