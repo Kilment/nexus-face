@@ -140,10 +140,10 @@ export default function PhotoDetailScreen() {
                 style={styles.image}
                 contentFit="contain"
               />
-              {(photo.gender || photo.ageRange || photo.ethnicity) ? (
+              {(photo.gender || photo.ageRange) ? (
                 <View style={styles.demographicOverlay}>
                   <ThemedText style={styles.demographicOverlayText}>
-                    {photo.gender ? `${photo.gender.charAt(0)}` : ""}{photo.ageRange ? ` ${photo.ageRange}` : ""}{photo.ethnicity ? ` ${photo.ethnicity}` : ""}
+                    {photo.gender ? `${photo.gender.charAt(0)}` : ""}{photo.ageRange ? ` ${photo.ageRange}` : ""}
                   </ThemedText>
                 </View>
               ) : null}
@@ -165,10 +165,10 @@ export default function PhotoDetailScreen() {
                 style={styles.image}
                 contentFit="contain"
               />
-              {(photo.gender || photo.ageRange || photo.ethnicity) ? (
+              {(photo.gender || photo.ageRange) ? (
                 <View style={styles.demographicOverlay}>
                   <ThemedText style={styles.demographicOverlayText}>
-                    {photo.gender ? `${photo.gender.charAt(0)}` : ""}{photo.ageRange ? ` ${photo.ageRange}` : ""}{photo.ethnicity ? ` ${photo.ethnicity}` : ""}
+                    {photo.gender ? `${photo.gender.charAt(0)}` : ""}{photo.ageRange ? ` ${photo.ageRange}` : ""}
                   </ThemedText>
                 </View>
               ) : null}
@@ -229,7 +229,7 @@ export default function PhotoDetailScreen() {
             <ThemedText style={styles.metadataValue}>{formattedDate}</ThemedText>
           </View>
 
-          {(photo.gender || photo.ageRange || photo.ethnicity) ? (
+          {(photo.gender || photo.ageRange) ? (
             <>
               <View style={styles.metadataDivider} />
               <View style={styles.metadataRow}>
@@ -238,7 +238,7 @@ export default function PhotoDetailScreen() {
                   Demographics
                 </ThemedText>
                 <ThemedText style={styles.metadataValue}>
-                  {photo.gender ? `${photo.gender}` : ""}{photo.ageRange ? ` ${photo.ageRange}` : ""}{photo.ethnicity ? ` ${photo.ethnicity}` : ""}
+                  {photo.gender ? `${photo.gender}` : ""}{photo.ageRange ? ` ${photo.ageRange}` : ""}
                 </ThemedText>
               </View>
             </>
@@ -318,7 +318,7 @@ const styles = StyleSheet.create({
   },
   demographicOverlay: {
     position: "absolute",
-    top: Spacing.lg,
+    bottom: Spacing.lg,
     left: Spacing.lg,
     backgroundColor: "rgba(0, 0, 0, 0.7)",
     paddingHorizontal: Spacing.sm,
@@ -335,7 +335,7 @@ const styles = StyleSheet.create({
   weeksOverlay: {
     position: "absolute",
     bottom: Spacing.lg,
-    left: Spacing.lg,
+    right: Spacing.lg,
     backgroundColor: "rgba(0, 122, 255, 0.85)",
     paddingHorizontal: 8,
     paddingVertical: 4,

@@ -21,6 +21,7 @@ export interface UserStats {
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByReplitId(replitId: string): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   
   getPhoto(id: string): Promise<Photo | undefined>;
@@ -40,6 +41,11 @@ export class DatabaseStorage implements IStorage {
 
   async getUserByReplitId(replitId: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.replitId, replitId));
+    return user || undefined;
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.email, email));
     return user || undefined;
   }
 

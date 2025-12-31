@@ -1,40 +1,68 @@
 import React, { useState } from "react";
-import { View, StyleSheet, Platform, Alert } from "react-native";
+import { View, StyleSheet, Platform, Alert, TextInput, Pressable } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { GlassButton } from "@/components/GlassButton";
+import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { useTheme } from "@/hooks/useTheme";
-import { Spacing } from "@/constants/theme";
+import { Spacing, BorderRadius } from "@/constants/theme";
 import { useAuth } from "@/lib/auth-context";
 import { hapticFeedback } from "@/lib/haptics";
 
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
-  const { login } = useAuth();
+  const { login, signup } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [username, setUsername] = useState("");
 
-  const handleLogin = async () => {
+  const handleSubmit = async () => {
+    if (!email.trim() || !password.trim()) {
+      Alert.alert("Missing Fields", "Please enter both email and password.");
+      return;
+    }
+
+    if (password.length < 6) {
+      Alert.alert("Weak Password", "Password must be at least 6 characters.");
+      return;
+    }
+
     hapticFeedback.medium();
     setIsLoading(true);
     try {
-      await login();
+      if (isSignUp) {
+        await signup(email.trim(), password, username.trim() || undefined);
+      } else {
+        await login(email.trim(), password);
+      }
       hapticFeedback.success();
     } catch (error) {
       hapticFeedback.error();
-      Alert.alert("Login Failed", "Unable to sign in. Please try again.");
+      const message = error instanceof Error ? error.message : "Please try again.";
+      Alert.alert(isSignUp ? "Sign Up Failed" : "Login Failed", message);
     } finally {
       setIsLoading(false);
     }
   };
 
+  const toggleMode = () => {
+    hapticFeedback.light();
+    setIsSignUp(!isSignUp);
+    setEmail("");
+    setPassword("");
+    setUsername("");
+  };
+
   return (
     <ThemedView style={styles.container}>
-      <View
-        style={[
+      <KeyboardAwareScrollViewCompat
+        contentContainerStyle={[
           styles.content,
           {
             paddingTop: insets.top + Spacing.xl,
@@ -84,21 +112,98 @@ export default function LoginScreen() {
           </ThemedText>
         </View>
 
-        <View style={styles.buttonSection}>
+        <View style={styles.formSection}>
+          {isSignUp ? (
+            <View
+              style={[
+                styles.inputContainer,
+                {
+                  backgroundColor: isDark
+                    ? "rgba(44, 44, 46, 0.8)"
+                    : "rgba(255, 255, 255, 0.8)",
+                  borderColor: theme.border,
+                },
+              ]}
+            >
+              <TextInput
+                style={[styles.input, { color: theme.text }]}
+                placeholder="Username (optional)"
+                placeholderTextColor={theme.textTertiary}
+                value={username}
+                onChangeText={setUsername}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+          ) : null}
+
+          <View
+            style={[
+              styles.inputContainer,
+              {
+                backgroundColor: isDark
+                  ? "rgba(44, 44, 46, 0.8)"
+                  : "rgba(255, 255, 255, 0.8)",
+                borderColor: theme.border,
+              },
+            ]}
+          >
+            <TextInput
+              style={[styles.input, { color: theme.text }]}
+              placeholder="Email"
+              placeholderTextColor={theme.textTertiary}
+              value={email}
+              onChangeText={setEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="email"
+            />
+          </View>
+
+          <View
+            style={[
+              styles.inputContainer,
+              {
+                backgroundColor: isDark
+                  ? "rgba(44, 44, 46, 0.8)"
+                  : "rgba(255, 255, 255, 0.8)",
+                borderColor: theme.border,
+              },
+            ]}
+          >
+            <TextInput
+              style={[styles.input, { color: theme.text }]}
+              placeholder="Password"
+              placeholderTextColor={theme.textTertiary}
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              autoCapitalize="none"
+              autoComplete="password"
+            />
+          </View>
+
           <GlassButton
-            title={isLoading ? "Signing in..." : "Get Started"}
-            icon={isLoading ? undefined : "log-in"}
-            onPress={handleLogin}
+            title={isLoading ? (isSignUp ? "Creating Account..." : "Signing in...") : (isSignUp ? "Sign Up" : "Log In")}
+            icon={isLoading ? undefined : (isSignUp ? "user-plus" : "log-in")}
+            onPress={handleSubmit}
             disabled={isLoading}
             loading={isLoading}
             size="large"
           />
 
+          <Pressable onPress={toggleMode} style={styles.toggleButton}>
+            <ThemedText style={[styles.toggleText, { color: theme.tabIconSelected }]}>
+              {isSignUp ? "Already have an account? Log In" : "Don't have an account? Sign Up"}
+            </ThemedText>
+          </Pressable>
+
           <ThemedText style={[styles.termsText, { color: theme.textTertiary }]}>
             By continuing, you agree to our Terms of Service and Privacy Policy
           </ThemedText>
         </View>
-      </View>
+      </KeyboardAwareScrollViewCompat>
     </ThemedView>
   );
 }
@@ -108,7 +213,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    flex: 1,
+    flexGrow: 1,
     paddingHorizontal: Spacing.xl,
     justifyContent: "space-between",
   },
@@ -124,9 +229,9 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.lg,
   },
   logoGlass: {
-    width: 140,
-    height: 140,
-    borderRadius: 35,
+    width: 120,
+    height: 120,
+    borderRadius: 30,
     justifyContent: "center",
     alignItems: "center",
     overflow: "hidden",
@@ -134,30 +239,49 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255, 255, 255, 0.15)",
   },
   logo: {
-    width: 100,
-    height: 100,
+    width: 80,
+    height: 80,
   },
   title: {
-    fontSize: 42,
+    fontSize: 36,
     fontWeight: "800",
     letterSpacing: 2,
   },
   subtitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: "600",
     letterSpacing: 4,
     textTransform: "uppercase",
     marginTop: -4,
   },
   tagline: {
-    fontSize: 16,
+    fontSize: 14,
     textAlign: "center",
-    lineHeight: 24,
-    marginTop: Spacing.md,
+    lineHeight: 22,
+    marginTop: Spacing.sm,
   },
-  buttonSection: {
-    gap: Spacing.lg,
+  formSection: {
+    gap: Spacing.md,
     paddingBottom: Spacing.xl,
+  },
+  inputContainer: {
+    height: 52,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    justifyContent: "center",
+    paddingHorizontal: Spacing.md,
+  },
+  input: {
+    fontSize: 16,
+    height: "100%",
+  },
+  toggleButton: {
+    alignItems: "center",
+    paddingVertical: Spacing.sm,
+  },
+  toggleText: {
+    fontSize: 14,
+    fontWeight: "600",
   },
   termsText: {
     fontSize: 12,

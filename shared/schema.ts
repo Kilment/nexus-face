@@ -8,6 +8,8 @@ export const users = pgTable("users", {
     .primaryKey()
     .default(sql`gen_random_uuid()`),
   replitId: text("replit_id").unique(),
+  email: text("email").unique(),
+  passwordHash: text("password_hash"),
   username: text("username").notNull(),
   profileImageUrl: text("profile_image_url"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -50,6 +52,8 @@ export const photosRelations = relations(photos, ({ one }) => ({
 
 export const insertUserSchema = createInsertSchema(users).pick({
   replitId: true,
+  email: true,
+  passwordHash: true,
   username: true,
   profileImageUrl: true,
 });

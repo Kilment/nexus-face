@@ -298,10 +298,10 @@ function PhotoCard({ photo, borderColor, theme, isDark, onPress }: PhotoCardProp
                   <Feather name="link" size={12} color="#FFFFFF" />
                 </View>
               ) : null}
-              {(photo.gender || photo.ageRange || photo.ethnicity) ? (
+              {(photo.gender || photo.ageRange) ? (
                 <View style={styles.demographicBadge}>
                   <ThemedText style={styles.demographicText}>
-                    {photo.gender ? `${photo.gender.charAt(0)}` : ""}{photo.ageRange ? ` • ${photo.ageRange}` : ""}{photo.ethnicity ? ` • ${photo.ethnicity}` : ""}
+                    {photo.gender ? `${photo.gender.charAt(0)}` : ""}{photo.ageRange ? ` ${photo.ageRange}` : ""}
                   </ThemedText>
                 </View>
               ) : null}
@@ -347,10 +347,10 @@ function PhotoCard({ photo, borderColor, theme, isDark, onPress }: PhotoCardProp
                   <Feather name="link" size={12} color="#FFFFFF" />
                 </View>
               ) : null}
-              {(photo.gender || photo.ageRange || photo.ethnicity) ? (
+              {(photo.gender || photo.ageRange) ? (
                 <View style={styles.demographicBadge}>
                   <ThemedText style={styles.demographicText}>
-                    {photo.gender ? `${photo.gender.charAt(0)}` : ""}{photo.ageRange ? ` • ${photo.ageRange}` : ""}{photo.ethnicity ? ` • ${photo.ethnicity}` : ""}
+                    {photo.gender ? `${photo.gender.charAt(0)}` : ""}{photo.ageRange ? ` ${photo.ageRange}` : ""}
                   </ThemedText>
                 </View>
               ) : null}
@@ -477,7 +477,7 @@ const styles = StyleSheet.create({
   },
   demographicBadge: {
     position: "absolute",
-    top: Spacing.xs,
+    bottom: Spacing.xs,
     left: Spacing.xs,
     backgroundColor: "rgba(0, 0, 0, 0.7)",
     paddingHorizontal: Spacing.xs,
@@ -494,7 +494,7 @@ const styles = StyleSheet.create({
   weeksBadge: {
     position: "absolute",
     bottom: Spacing.xs,
-    left: Spacing.xs,
+    right: Spacing.xs,
     backgroundColor: "rgba(0, 122, 255, 0.85)",
     paddingHorizontal: 6,
     paddingVertical: 2,

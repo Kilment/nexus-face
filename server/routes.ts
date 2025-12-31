@@ -1,10 +1,24 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "node:http";
 import session from "express-session";
+import crypto from "crypto";
 import { storage } from "./storage";
 import { processImageForFaceAnonymization } from "./face-processor";
 import { insertPhotoSchema } from "@shared/schema";
 import { calculateImprovementScore, detectDemographics } from "./rekognition";
+
+function hashPassword(password: string): string {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const hash = crypto.pbkdf2Sync(password, salt, 100000, 64, "sha512").toString("hex");
+  return `${salt}:${hash}`;
+}
+
+function verifyPassword(password: string, storedHash: string): boolean {
+  const [salt, hash] = storedHash.split(":");
+  if (!salt || !hash) return false;
+  const verifyHash = crypto.pbkdf2Sync(password, salt, 100000, 64, "sha512").toString("hex");
+  return hash === verifyHash;
+}
 
 declare module "express-session" {
   interface SessionData {
@@ -63,7 +77,73 @@ export async function registerRoutes(app: Express): Promise<Server> {
     })
   );
 
-  // Development login endpoint - for testing without Replit Auth
+  // Sign up endpoint
+  app.post("/api/auth/signup", async (req, res) => {
+    try {
+      const { email, password, username } = req.body;
+      if (!email || !password) {
+        return res.status(400).json({ error: "Email and password required" });
+      }
+
+      const existingUser = await storage.getUserByEmail(email);
+      if (existingUser) {
+        return res.status(400).json({ error: "Email already registered" });
+      }
+
+      const passwordHash = hashPassword(password);
+      const user = await storage.createUser({
+        email,
+        passwordHash,
+        username: username || email.split("@")[0],
+        profileImageUrl: null,
+      });
+
+      req.session.userId = user.id;
+      res.json({ 
+        user: {
+          id: user.id,
+          username: user.username,
+          profileImageUrl: user.profileImageUrl,
+        }
+      });
+    } catch (error) {
+      console.error("Signup error:", error);
+      res.status(500).json({ error: "Signup failed" });
+    }
+  });
+
+  // Login endpoint
+  app.post("/api/auth/login", async (req, res) => {
+    try {
+      const { email, password } = req.body;
+      if (!email || !password) {
+        return res.status(400).json({ error: "Email and password required" });
+      }
+
+      const user = await storage.getUserByEmail(email);
+      if (!user || !user.passwordHash) {
+        return res.status(401).json({ error: "Invalid email or password" });
+      }
+
+      if (!verifyPassword(password, user.passwordHash)) {
+        return res.status(401).json({ error: "Invalid email or password" });
+      }
+
+      req.session.userId = user.id;
+      res.json({ 
+        user: {
+          id: user.id,
+          username: user.username,
+          profileImageUrl: user.profileImageUrl,
+        }
+      });
+    } catch (error) {
+      console.error("Login error:", error);
+      res.status(500).json({ error: "Login failed" });
+    }
+  });
+
+  // Development login endpoint - for testing without Replit Auth (legacy)
   app.post("/api/auth/dev-login", async (req, res) => {
     try {
       const { email } = req.body;
@@ -71,10 +151,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Email required" });
       }
 
-      let user = await storage.getUserByReplitId(email);
+      let user = await storage.getUserByEmail(email);
+      if (!user) {
+        user = await storage.getUserByReplitId(email);
+      }
       if (!user) {
         user = await storage.createUser({
-          replitId: email,
+          email,
           username: email.split("@")[0],
           profileImageUrl: null,
         });

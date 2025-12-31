@@ -12,7 +12,8 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  login: (email?: string) => Promise<void>;
+  login: (email: string, password: string) => Promise<void>;
+  signup: (email: string, password: string, username?: string) => Promise<void>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
 }
@@ -45,16 +46,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     checkAuth();
   }, []);
 
-  const login = async (email?: string) => {
+  const login = async (email: string, password: string) => {
     try {
-      const response = await fetch(new URL("/api/auth/dev-login", getApiUrl()).toString(), {
+      const response = await fetch(new URL("/api/auth/login", getApiUrl()).toString(), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email || "user@example.com" }),
+        body: JSON.stringify({ email, password }),
       });
       
       if (!response.ok) {
-        throw new Error("Login failed");
+        const data = await response.json();
+        throw new Error(data.error || "Login failed");
       }
       
       const data = await response.json();
@@ -62,6 +64,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(data.user);
     } catch (error) {
       console.error("Login error:", error);
+      throw error;
+    }
+  };
+
+  const signup = async (email: string, password: string, username?: string) => {
+    try {
+      const response = await fetch(new URL("/api/auth/signup", getApiUrl()).toString(), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, username }),
+      });
+      
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || "Signup failed");
+      }
+      
+      const data = await response.json();
+      await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(data.user));
+      setUser(data.user);
+    } catch (error) {
+      console.error("Signup error:", error);
       throw error;
     }
   };
@@ -82,6 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         isAuthenticated: !!user,
         login,
+        signup,
         logout,
         checkAuth,
       }}
