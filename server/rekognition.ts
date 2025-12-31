@@ -14,7 +14,9 @@ function getEmotion(face: FaceDetail, type: string): number {
 
 function getAverageAge(face: FaceDetail): number {
   if (!face.AgeRange) return 0;
-  return (face.AgeRange.Low || 0 + (face.AgeRange.High || 0)) / 2;
+  const low = face.AgeRange.Low ?? 0;
+  const high = face.AgeRange.High ?? 0;
+  return (low + high) / 2;
 }
 
 export interface ImprovementResult {
@@ -46,22 +48,10 @@ export async function detectDemographics(imageBase64: string): Promise<{ gender:
     const ageLow = face.AgeRange?.Low || 0;
     const ageHigh = face.AgeRange?.High || 0;
     
-    // AWS Rekognition doesn't directly provide ethnicity/race anymore as a direct attribute like Gender
-    // However, it can detect other attributes. For ethnicity, we usually use third-party analysis or
-    // custom labels. In this specific Rekognition API version, it's not a standard field.
-    // Let's check if we can approximate or use Face Landmark analysis if available.
-    // Actually, for "perceived ethnicity", we might need a different approach or model.
-    // Given the constraints, let's look for any other identifying attributes or stick to gender/age
-    // if not natively supported by this exact DetectFaces call without custom models.
-    
-    // NOTE: Rekognition DetectFaces does NOT return ethnicity by default.
-    // I will placeholder this or use a simplified mock based on detection confidence if necessary,
-    // but better to check if there's any other attribute we can use.
-    
     return {
       gender,
       ageRange: `${ageLow}-${ageHigh}`,
-      ethnicity: "Detected", // We'll mark it as detected for now or omit if unavailable
+      ethnicity: "Detected",
     };
   } catch (error) {
     console.error("Demographics detection error:", error);
@@ -80,6 +70,7 @@ export async function calculateImprovementScore(beforeBase64: string, afterBase6
     });
     const detectAfter = new DetectFacesCommand({
       Image: { Bytes: afterBuffer },
+      Attributes: ["ALL"],
     });
 
     const [beforeResult, afterResult] = await Promise.all([
@@ -100,39 +91,47 @@ export async function calculateImprovementScore(beforeBase64: string, afterBase6
     const beforeAge = getAverageAge(beforeFace);
     const afterAge = getAverageAge(afterFace);
     const ageImprovement = beforeAge - afterAge;
-    rawScore += ageImprovement * 3.5;
+    // Clamp age delta to realistic range (max ±10 years impact)
+    const clampedAgeDelta = Math.max(-10, Math.min(10, ageImprovement));
+    rawScore += clampedAgeDelta * 3.5;
 
     // === HAPPINESS/SMILE (15%) ===
     const beforeHappy = getEmotion(beforeFace, "HAPPY");
     const afterHappy = getEmotion(afterFace, "HAPPY");
-    rawScore += (afterHappy - beforeHappy) * 0.15;
+    const happyDelta = Math.max(-100, Math.min(100, afterHappy - beforeHappy));
+    rawScore += happyDelta * 0.15;
 
     // === CALMNESS (10%) ===
     const beforeCalm = getEmotion(beforeFace, "CALM");
     const afterCalm = getEmotion(afterFace, "CALM");
-    rawScore += (afterCalm - beforeCalm) * 0.1;
+    const calmDelta = Math.max(-100, Math.min(100, afterCalm - beforeCalm));
+    rawScore += calmDelta * 0.1;
 
     // === REDUCED NEGATIVE EMOTIONS (10%) ===
     const getNegativeEmotions = (face: FaceDetail) => 
       getEmotion(face, "SAD") + getEmotion(face, "ANGRY") + getEmotion(face, "FEAR") + getEmotion(face, "DISGUSTED");
     const beforeNegative = getNegativeEmotions(beforeFace);
     const afterNegative = getNegativeEmotions(afterFace);
-    rawScore += (beforeNegative - afterNegative) * 0.025;
+    const negativeDelta = Math.max(-400, Math.min(400, beforeNegative - afterNegative));
+    rawScore += negativeDelta * 0.025;
 
     // === SMILE CONFIDENCE (10%) ===
     const beforeSmile = beforeFace.Smile?.Value ? beforeFace.Smile.Confidence || 0 : 0;
     const afterSmile = afterFace.Smile?.Value ? afterFace.Smile.Confidence || 0 : 0;
-    rawScore += (afterSmile - beforeSmile) * 0.1;
+    const smileDelta = Math.max(-100, Math.min(100, afterSmile - beforeSmile));
+    rawScore += smileDelta * 0.1;
 
     // === IMAGE QUALITY (10%) ===
     const beforeQuality = (beforeFace.Quality?.Brightness || 0) + (beforeFace.Quality?.Sharpness || 0);
     const afterQuality = (afterFace.Quality?.Brightness || 0) + (afterFace.Quality?.Sharpness || 0);
-    rawScore += (afterQuality - beforeQuality) * 0.05;
+    const qualityDelta = Math.max(-200, Math.min(200, afterQuality - beforeQuality));
+    rawScore += qualityDelta * 0.05;
 
     // === EYES OPEN (5%) ===
     const beforeEyes = beforeFace.EyesOpen?.Value ? beforeFace.EyesOpen.Confidence || 0 : 0;
     const afterEyes = afterFace.EyesOpen?.Value ? afterFace.EyesOpen.Confidence || 0 : 0;
-    rawScore += (afterEyes - beforeEyes) * 0.05;
+    const eyesDelta = Math.max(-100, Math.min(100, afterEyes - beforeEyes));
+    rawScore += eyesDelta * 0.05;
 
     // === FACE POSE (5%) ===
     const getPoseScore = (face: FaceDetail) => {
@@ -143,7 +142,15 @@ export async function calculateImprovementScore(beforeBase64: string, afterBase6
     };
     const beforePose = getPoseScore(beforeFace);
     const afterPose = getPoseScore(afterFace);
-    rawScore += (beforePose - afterPose) * 0.5;
+    const poseDelta = Math.max(-30, Math.min(30, beforePose - afterPose));
+    rawScore += poseDelta * 0.5;
+
+    // Apply tolerance for identical/near-identical images
+    // If rawScore is within ±2 of 50, treat as no improvement
+    const TOLERANCE = 2;
+    if (Math.abs(rawScore - 50) < TOLERANCE) {
+      rawScore = 50;
+    }
 
     const clampedScore = Math.max(0, Math.min(100, rawScore));
     
@@ -151,12 +158,14 @@ export async function calculateImprovementScore(beforeBase64: string, afterBase6
     // We treat 50 as 0% improvement. 100 as roughly 100% improvement.
     // Formula: percentage = ln(score / 50) * 144.27 (where 144.27 makes ln(2) = 100)
     let percentage = 0;
-    if (clampedScore > 0) {
+    if (clampedScore > 0 && clampedScore !== 50) {
       percentage = Math.round(Math.log(clampedScore / 50) * 144.27);
     }
 
     // Confidence interval calculation (simulated based on Rekognition confidence scores)
-    const avgConfidence = (beforeFace.Confidence || 95 + (afterFace.Confidence || 95)) / 2;
+    const beforeConfidence = beforeFace.Confidence || 95;
+    const afterConfidence = afterFace.Confidence || 95;
+    const avgConfidence = (beforeConfidence + afterConfidence) / 2;
     const margin = Math.max(2, Math.round((100 - avgConfidence) * 0.5));
     
     return {
