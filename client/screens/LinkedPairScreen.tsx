@@ -22,7 +22,6 @@ import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
-  interpolate,
 } from "react-native-reanimated";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
@@ -45,8 +44,6 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const COMPARISON_IMAGE_SIZE = (SCREEN_WIDTH - Spacing.lg * 3) / 2;
 
 type ViewMode = "side-by-side" | "stacked" | "slider";
-
-const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 export default function LinkedPairScreen() {
   const insets = useSafeAreaInsets();
@@ -323,6 +320,34 @@ export default function LinkedPairScreen() {
             </ThemedText>
             <ThemedText style={styles.metadataValue}>{beforePhoto.locationCode}</ThemedText>
           </View>
+
+          {beforePhoto.gender || beforePhoto.ageRange || beforePhoto.ethnicity ? (
+            <>
+              <View style={styles.metadataDivider} />
+              <View style={styles.metadataRow}>
+                <Feather name="info" size={18} color={theme.textSecondary} />
+                <ThemedText style={[styles.metadataLabel, { color: theme.textSecondary }]}>
+                  Demographics
+                </ThemedText>
+                <ThemedText style={styles.metadataValue}>
+                  {beforePhoto.gender ? `${beforePhoto.gender.charAt(0)}` : ""}{beforePhoto.ageRange ? ` • ${beforePhoto.ageRange}` : ""}{beforePhoto.ethnicity ? ` • ${beforePhoto.ethnicity}` : ""}
+                </ThemedText>
+              </View>
+            </>
+          ) : null}
+
+          {afterPhoto.weeksAfter !== null ? (
+            <>
+              <View style={styles.metadataDivider} />
+              <View style={styles.metadataRow}>
+                <Feather name="calendar" size={18} color={theme.textSecondary} />
+                <ThemedText style={[styles.metadataLabel, { color: theme.textSecondary }]}>
+                  Time Point
+                </ThemedText>
+                <ThemedText style={styles.metadataValue}>{afterPhoto.weeksAfter} Weeks</ThemedText>
+              </View>
+            </>
+          ) : null}
         </GlassCard>
       </ScrollView>
     </ThemedView>
