@@ -2,11 +2,12 @@ import React from "react";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Feather } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
-import { Platform, StyleSheet } from "react-native";
+import { Platform, StyleSheet, View } from "react-native";
 import GalleryStackNavigator from "@/navigation/GalleryStackNavigator";
 import CameraStackNavigator from "@/navigation/CameraStackNavigator";
 import ProfileStackNavigator from "@/navigation/ProfileStackNavigator";
 import { useTheme } from "@/hooks/useTheme";
+import { BorderRadius } from "@/constants/theme";
 
 export type MainTabParamList = {
   GalleryTab: undefined;
@@ -15,6 +16,14 @@ export type MainTabParamList = {
 };
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
+
+function TabBarIcon({ name, color, focused }: { name: keyof typeof Feather.glyphMap; color: string; focused: boolean }) {
+  return (
+    <View style={[styles.iconContainer, focused && styles.iconContainerFocused]}>
+      <Feather name={name} size={22} color={color} />
+    </View>
+  );
+}
 
 export default function MainTabNavigator() {
   const { theme, isDark } = useTheme();
@@ -25,19 +34,27 @@ export default function MainTabNavigator() {
       screenOptions={{
         tabBarActiveTintColor: theme.tabIconSelected,
         tabBarInactiveTintColor: theme.tabIconDefault,
+        tabBarShowLabel: true,
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: "500",
+        },
         tabBarStyle: {
           position: "absolute",
           backgroundColor: Platform.select({
             ios: "transparent",
-            android: theme.backgroundRoot,
+            android: isDark ? "rgba(28, 28, 30, 0.95)" : "rgba(255, 255, 255, 0.95)",
+            web: isDark ? "rgba(28, 28, 30, 0.95)" : "rgba(255, 255, 255, 0.95)",
           }),
           borderTopWidth: 0,
           elevation: 0,
+          height: Platform.select({ ios: 88, android: 64, web: 64 }),
+          paddingBottom: Platform.select({ ios: 28, android: 8, web: 8 }),
         },
         tabBarBackground: () =>
           Platform.OS === "ios" ? (
             <BlurView
-              intensity={100}
+              intensity={80}
               tint={isDark ? "dark" : "light"}
               style={StyleSheet.absoluteFill}
             />
@@ -50,8 +67,8 @@ export default function MainTabNavigator() {
         component={GalleryStackNavigator}
         options={{
           title: "Gallery",
-          tabBarIcon: ({ color, size }) => (
-            <Feather name="grid" size={size} color={color} />
+          tabBarIcon: ({ color, focused }) => (
+            <TabBarIcon name="image" color={color} focused={focused} />
           ),
         }}
       />
@@ -59,9 +76,9 @@ export default function MainTabNavigator() {
         name="CameraTab"
         component={CameraStackNavigator}
         options={{
-          title: "Camera",
-          tabBarIcon: ({ color, size }) => (
-            <Feather name="camera" size={size} color={color} />
+          title: "Capture",
+          tabBarIcon: ({ color, focused }) => (
+            <TabBarIcon name="aperture" color={color} focused={focused} />
           ),
         }}
       />
@@ -70,11 +87,24 @@ export default function MainTabNavigator() {
         component={ProfileStackNavigator}
         options={{
           title: "Profile",
-          tabBarIcon: ({ color, size }) => (
-            <Feather name="user" size={size} color={color} />
+          tabBarIcon: ({ color, focused }) => (
+            <TabBarIcon name="user" color={color} focused={focused} />
           ),
         }}
       />
     </Tab.Navigator>
   );
 }
+
+const styles = StyleSheet.create({
+  iconContainer: {
+    width: 44,
+    height: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: BorderRadius.sm,
+  },
+  iconContainerFocused: {
+    backgroundColor: "rgba(0, 122, 255, 0.12)",
+  },
+});

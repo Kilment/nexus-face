@@ -9,19 +9,17 @@ import {
   Platform,
   Pressable,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
+import { useHeaderHeight, HeaderButton } from "@react-navigation/elements";
 import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
 import { Feather } from "@expo/vector-icons";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { HeaderButton } from "@react-navigation/elements";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
-  withSpring,
 } from "react-native-reanimated";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
@@ -46,8 +44,8 @@ const COMPARISON_IMAGE_SIZE = (SCREEN_WIDTH - Spacing.lg * 3) / 2;
 type ViewMode = "side-by-side" | "stacked" | "slider";
 
 export default function LinkedPairScreen() {
-  const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
+  const headerHeight = useHeaderHeight();
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute<LinkedPairRouteProp>();
@@ -55,6 +53,14 @@ export default function LinkedPairScreen() {
 
   const [viewMode, setViewMode] = useState<ViewMode>("side-by-side");
   const sliderPosition = useSharedValue(0.5);
+
+  const sliderStyle = useAnimatedStyle(() => ({
+    left: `${sliderPosition.value * 100}%`,
+  }));
+
+  const afterOverlayStyle = useAnimatedStyle(() => ({
+    width: `${sliderPosition.value * 100}%`,
+  }));
 
   const { data: photo1Data, isLoading: isLoading1 } = useQuery<PhotoResponse>({
     queryKey: ["/api/photos", photoId],
@@ -79,19 +85,6 @@ export default function LinkedPairScreen() {
     },
   });
 
-  React.useLayoutEffect(() => {
-    navigation.setOptions({
-      headerRight: () => (
-        <HeaderButton
-          onPress={handleUnlink}
-          pressColor={theme.error}
-        >
-          <ThemedText style={{ color: theme.error }}>Unlink</ThemedText>
-        </HeaderButton>
-      ),
-    });
-  }, [navigation, theme]);
-
   const handleUnlink = () => {
     hapticFeedback.warning();
     Alert.alert(
@@ -107,6 +100,19 @@ export default function LinkedPairScreen() {
       ]
     );
   };
+
+  React.useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <HeaderButton
+          onPress={handleUnlink}
+          pressColor={theme.error}
+        >
+          <ThemedText style={{ color: theme.error }}>Unlink</ThemedText>
+        </HeaderButton>
+      ),
+    });
+  }, [navigation, theme]);
 
   const cycleViewMode = () => {
     hapticFeedback.selection();
@@ -135,14 +141,6 @@ export default function LinkedPairScreen() {
   const percentage = improvementScore && improvementScore > 0
     ? Math.round(Math.log(improvementScore / 50) * 144.27)
     : 0;
-
-  const sliderStyle = useAnimatedStyle(() => ({
-    left: `${sliderPosition.value * 100}%`,
-  }));
-
-  const afterOverlayStyle = useAnimatedStyle(() => ({
-    width: `${sliderPosition.value * 100}%`,
-  }));
 
   const renderSideBySide = () => (
     <View style={styles.sideBySideContainer}>
@@ -248,7 +246,7 @@ export default function LinkedPairScreen() {
         contentContainerStyle={[
           styles.content,
           {
-            paddingTop: Spacing.lg,
+            paddingTop: headerHeight + Spacing.lg,
             paddingBottom: tabBarHeight + Spacing.xl,
           },
         ]}
@@ -282,9 +280,9 @@ export default function LinkedPairScreen() {
           </Pressable>
         </View>
 
-        {viewMode === "side-by-side" && renderSideBySide()}
-        {viewMode === "stacked" && renderStacked()}
-        {viewMode === "slider" && renderSlider()}
+        {viewMode === "side-by-side" ? renderSideBySide() : null}
+        {viewMode === "stacked" ? renderStacked() : null}
+        {viewMode === "slider" ? renderSlider() : null}
 
         {improvementScore ? (
           <GlassCard style={styles.scoreCard}>
@@ -330,13 +328,13 @@ export default function LinkedPairScreen() {
                   Demographics
                 </ThemedText>
                 <ThemedText style={styles.metadataValue}>
-                  {beforePhoto.gender ? `${beforePhoto.gender.charAt(0)}` : ""}{beforePhoto.ageRange ? ` • ${beforePhoto.ageRange}` : ""}{beforePhoto.ethnicity ? ` • ${beforePhoto.ethnicity}` : ""}
+                  {beforePhoto.gender ? `${beforePhoto.gender.charAt(0)}` : ""}{beforePhoto.ageRange ? ` ${beforePhoto.ageRange}` : ""}{beforePhoto.ethnicity ? ` ${beforePhoto.ethnicity}` : ""}
                 </ThemedText>
               </View>
             </>
           ) : null}
 
-          {afterPhoto.weeksAfter !== null ? (
+          {afterPhoto.weeksAfter !== null && afterPhoto.weeksAfter !== undefined ? (
             <>
               <View style={styles.metadataDivider} />
               <View style={styles.metadataRow}>

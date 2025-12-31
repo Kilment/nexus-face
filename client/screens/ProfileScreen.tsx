@@ -2,6 +2,7 @@ import React from "react";
 import { View, StyleSheet, Pressable, Alert, ActivityIndicator, Dimensions, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
+import { useHeaderHeight } from "@react-navigation/elements";
 import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
 import { Feather } from "@expo/vector-icons";
@@ -52,6 +53,7 @@ const PAIR_IMAGE_SIZE = (Dimensions.get("window").width - Spacing.lg * 3) / 2 - 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
+  const headerHeight = useHeaderHeight();
   const { theme, isDark } = useTheme();
   const { user, logout } = useAuth();
 
@@ -141,7 +143,7 @@ export default function ProfileScreen() {
         contentContainerStyle={[
           styles.content,
           {
-            paddingTop: Spacing.lg,
+            paddingTop: headerHeight + Spacing.lg,
             paddingBottom: tabBarHeight + Spacing.xl,
           },
         ]}

@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
+import { useHeaderHeight } from "@react-navigation/elements";
 import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
 import { Feather } from "@expo/vector-icons";
@@ -45,6 +46,7 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 export default function GalleryScreen() {
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
+  const headerHeight = useHeaderHeight();
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<NavigationProp>();
   const [searchQuery, setSearchQuery] = useState("");
@@ -131,7 +133,7 @@ export default function GalleryScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      <View style={styles.searchContainer}>
+      <View style={[styles.searchContainer, { marginTop: headerHeight + Spacing.sm }]}>
         <View style={styles.searchBarWrapper}>
           {Platform.OS === "ios" ? (
             <BlurView
@@ -383,7 +385,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   searchContainer: {
-    paddingTop: Spacing.sm,
     gap: Spacing.sm,
   },
   searchBarWrapper: {
@@ -476,14 +477,14 @@ const styles = StyleSheet.create({
   },
   demographicBadge: {
     position: "absolute",
-    bottom: Spacing.xs,
+    top: Spacing.xs,
     left: Spacing.xs,
-    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
     paddingHorizontal: Spacing.xs,
     paddingVertical: 2,
     borderRadius: BorderRadius.xs,
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.2)",
+    borderColor: "rgba(255, 255, 255, 0.3)",
   },
   demographicText: {
     fontSize: 10,
@@ -492,9 +493,9 @@ const styles = StyleSheet.create({
   },
   weeksBadge: {
     position: "absolute",
-    top: Spacing.xs,
+    bottom: Spacing.xs,
     left: Spacing.xs,
-    backgroundColor: "rgba(0, 122, 255, 0.8)",
+    backgroundColor: "rgba(0, 122, 255, 0.85)",
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 10,

@@ -10,7 +10,7 @@ export type ProfileStackParamList = {
 const Stack = createNativeStackNavigator<ProfileStackParamList>();
 
 export default function ProfileStackNavigator() {
-  const screenOptions = useScreenOptions({ transparent: false });
+  const screenOptions = useScreenOptions({ transparent: true });
 
   return (
     <Stack.Navigator screenOptions={screenOptions}>

@@ -14,7 +14,7 @@ export type GalleryStackParamList = {
 const Stack = createNativeStackNavigator<GalleryStackParamList>();
 
 export default function GalleryStackNavigator() {
-  const screenOptions = useScreenOptions({ transparent: false });
+  const screenOptions = useScreenOptions({ transparent: true });
 
   return (
     <Stack.Navigator screenOptions={screenOptions}>

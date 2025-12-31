@@ -6,20 +6,23 @@ import {
   Pressable,
   Alert,
   ActivityIndicator,
+  Platform,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
+import { useHeaderHeight, HeaderButton } from "@react-navigation/elements";
+import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
 import { Feather } from "@expo/vector-icons";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { HeaderButton } from "@react-navigation/elements";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
+import { GlassCard } from "@/components/GlassCard";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius, Typography } from "@/constants/theme";
 import { apiRequest, queryClient } from "@/lib/query-client";
+import { hapticFeedback } from "@/lib/haptics";
 import type { GalleryStackParamList } from "@/navigation/GalleryStackNavigator";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 import type { Photo } from "@shared/schema";
@@ -33,9 +36,9 @@ interface PhotoResponse {
 }
 
 export default function PhotoDetailScreen() {
-  const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
-  const { theme } = useTheme();
+  const headerHeight = useHeaderHeight();
+  const { theme, isDark } = useTheme();
   const galleryNav = useNavigation<GalleryNavProp>();
   const rootNav = useNavigation<RootNavProp>();
   const route = useRoute<PhotoDetailRouteProp>();
@@ -51,9 +54,11 @@ export default function PhotoDetailScreen() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/photos"] });
+      hapticFeedback.success();
       galleryNav.goBack();
     },
     onError: () => {
+      hapticFeedback.error();
       Alert.alert("Error", "Failed to delete photo.");
     },
   });
@@ -74,6 +79,7 @@ export default function PhotoDetailScreen() {
   }, [galleryNav, theme]);
 
   const handleDelete = () => {
+    hapticFeedback.warning();
     Alert.alert(
       "Delete Photo",
       "Are you sure you want to delete this photo? This action cannot be undone.",
@@ -89,6 +95,7 @@ export default function PhotoDetailScreen() {
   };
 
   const handleLink = () => {
+    hapticFeedback.light();
     rootNav.navigate("LinkPhoto", { photoId });
   };
 
@@ -115,31 +122,78 @@ export default function PhotoDetailScreen() {
         contentContainerStyle={[
           styles.content,
           {
-            paddingTop: Spacing.xl,
+            paddingTop: headerHeight + Spacing.lg,
             paddingBottom: tabBarHeight + Spacing.xl,
           },
         ]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={[styles.imageContainer, { backgroundColor: theme.cardBackground }]}>
-          <View style={[styles.imageBorder, { borderColor }]}>
-            <Image
-              source={{ uri: photo.processedImageUrl }}
-              style={styles.image}
-              contentFit="contain"
-            />
-          </View>
+        <View style={styles.imageWrapper}>
+          {Platform.OS === "ios" ? (
+            <BlurView
+              intensity={40}
+              tint={isDark ? "dark" : "light"}
+              style={[styles.imageContainer, { borderColor }]}
+            >
+              <Image
+                source={{ uri: photo.processedImageUrl }}
+                style={styles.image}
+                contentFit="contain"
+              />
+              {(photo.gender || photo.ageRange || photo.ethnicity) ? (
+                <View style={styles.demographicOverlay}>
+                  <ThemedText style={styles.demographicOverlayText}>
+                    {photo.gender ? `${photo.gender.charAt(0)}` : ""}{photo.ageRange ? ` ${photo.ageRange}` : ""}{photo.ethnicity ? ` ${photo.ethnicity}` : ""}
+                  </ThemedText>
+                </View>
+              ) : null}
+              {photo.weeksAfter !== null && photo.weeksAfter !== undefined ? (
+                <View style={styles.weeksOverlay}>
+                  <ThemedText style={styles.weeksOverlayText}>{photo.weeksAfter}W</ThemedText>
+                </View>
+              ) : null}
+            </BlurView>
+          ) : (
+            <View
+              style={[
+                styles.imageContainer,
+                { borderColor, backgroundColor: isDark ? "rgba(44, 44, 46, 0.9)" : "rgba(255, 255, 255, 0.9)" },
+              ]}
+            >
+              <Image
+                source={{ uri: photo.processedImageUrl }}
+                style={styles.image}
+                contentFit="contain"
+              />
+              {(photo.gender || photo.ageRange || photo.ethnicity) ? (
+                <View style={styles.demographicOverlay}>
+                  <ThemedText style={styles.demographicOverlayText}>
+                    {photo.gender ? `${photo.gender.charAt(0)}` : ""}{photo.ageRange ? ` ${photo.ageRange}` : ""}{photo.ethnicity ? ` ${photo.ethnicity}` : ""}
+                  </ThemedText>
+                </View>
+              ) : null}
+              {photo.weeksAfter !== null && photo.weeksAfter !== undefined ? (
+                <View style={styles.weeksOverlay}>
+                  <ThemedText style={styles.weeksOverlayText}>{photo.weeksAfter}W</ThemedText>
+                </View>
+              ) : null}
+            </View>
+          )}
         </View>
 
-        <View style={styles.metadataContainer}>
+        <GlassCard style={styles.metadataCard}>
           <View style={styles.metadataRow}>
+            <Feather name="user" size={18} color={theme.textSecondary} />
             <ThemedText style={[styles.metadataLabel, { color: theme.textSecondary }]}>
               Initials
             </ThemedText>
             <ThemedText style={styles.metadataValue}>{photo.initials}</ThemedText>
           </View>
 
+          <View style={styles.metadataDivider} />
+
           <View style={styles.metadataRow}>
+            <Feather name="tag" size={18} color={theme.textSecondary} />
             <ThemedText style={[styles.metadataLabel, { color: theme.textSecondary }]}>
               Type
             </ThemedText>
@@ -155,22 +209,56 @@ export default function PhotoDetailScreen() {
             </View>
           </View>
 
+          <View style={styles.metadataDivider} />
+
           <View style={styles.metadataRow}>
+            <Feather name="map-pin" size={18} color={theme.textSecondary} />
             <ThemedText style={[styles.metadataLabel, { color: theme.textSecondary }]}>
-              Location Code
+              Location
             </ThemedText>
             <ThemedText style={styles.metadataValue}>{photo.locationCode}</ThemedText>
           </View>
 
+          <View style={styles.metadataDivider} />
+
           <View style={styles.metadataRow}>
+            <Feather name="calendar" size={18} color={theme.textSecondary} />
             <ThemedText style={[styles.metadataLabel, { color: theme.textSecondary }]}>
-              Date Saved
+              Date
             </ThemedText>
             <ThemedText style={styles.metadataValue}>{formattedDate}</ThemedText>
           </View>
-        </View>
 
-        {!photo.linkedPhotoId && (
+          {(photo.gender || photo.ageRange || photo.ethnicity) ? (
+            <>
+              <View style={styles.metadataDivider} />
+              <View style={styles.metadataRow}>
+                <Feather name="info" size={18} color={theme.textSecondary} />
+                <ThemedText style={[styles.metadataLabel, { color: theme.textSecondary }]}>
+                  Demographics
+                </ThemedText>
+                <ThemedText style={styles.metadataValue}>
+                  {photo.gender ? `${photo.gender}` : ""}{photo.ageRange ? ` ${photo.ageRange}` : ""}{photo.ethnicity ? ` ${photo.ethnicity}` : ""}
+                </ThemedText>
+              </View>
+            </>
+          ) : null}
+
+          {photo.weeksAfter !== null && photo.weeksAfter !== undefined ? (
+            <>
+              <View style={styles.metadataDivider} />
+              <View style={styles.metadataRow}>
+                <Feather name="clock" size={18} color={theme.textSecondary} />
+                <ThemedText style={[styles.metadataLabel, { color: theme.textSecondary }]}>
+                  Time Point
+                </ThemedText>
+                <ThemedText style={styles.metadataValue}>{photo.weeksAfter} Weeks After</ThemedText>
+              </View>
+            </>
+          ) : null}
+        </GlassCard>
+
+        {!photo.linkedPhotoId ? (
           <Pressable
             style={({ pressed }) => [
               styles.linkButton,
@@ -182,16 +270,18 @@ export default function PhotoDetailScreen() {
             <Feather name="link" size={20} color="#FFFFFF" />
             <ThemedText style={styles.linkButtonText}>Link to Pair</ThemedText>
           </Pressable>
-        )}
+        ) : null}
 
-        {photo.linkedPhotoId && (
-          <View style={[styles.linkedSection, { backgroundColor: theme.backgroundDefault }]}>
-            <Feather name="check-circle" size={24} color={theme.success} />
-            <ThemedText style={[styles.linkedText, { color: theme.textSecondary }]}>
-              This photo is linked to a {photo.beforeAfter === "before" ? "After" : "Before"} photo
-            </ThemedText>
-          </View>
-        )}
+        {photo.linkedPhotoId ? (
+          <GlassCard style={styles.linkedCard}>
+            <View style={styles.linkedContent}>
+              <Feather name="check-circle" size={24} color={theme.success} />
+              <ThemedText style={[styles.linkedText, { color: theme.textSecondary }]}>
+                Linked to {photo.beforeAfter === "before" ? "After" : "Before"} photo
+              </ThemedText>
+            </View>
+          </GlassCard>
+        ) : null}
       </ScrollView>
     </ThemedView>
   );
@@ -208,36 +298,75 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingHorizontal: Spacing.lg,
-    gap: Spacing.xl,
+    gap: Spacing.lg,
+  },
+  imageWrapper: {
+    alignSelf: "center",
+    borderRadius: BorderRadius.lg,
+    overflow: "hidden",
   },
   imageContainer: {
-    alignSelf: "center",
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-  },
-  imageBorder: {
     borderWidth: 3,
-    borderRadius: BorderRadius.sm,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.md,
     overflow: "hidden",
   },
   image: {
-    width: 240,
-    height: 300,
+    width: 260,
+    height: 340,
+    borderRadius: BorderRadius.md,
   },
-  metadataContainer: {
+  demographicOverlay: {
+    position: "absolute",
+    top: Spacing.lg,
+    left: Spacing.lg,
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.xs,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.3)",
+  },
+  demographicOverlayText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#FFFFFF",
+  },
+  weeksOverlay: {
+    position: "absolute",
+    bottom: Spacing.lg,
+    left: Spacing.lg,
+    backgroundColor: "rgba(0, 122, 255, 0.85)",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.3)",
+  },
+  weeksOverlayText: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#FFFFFF",
+  },
+  metadataCard: {
     gap: Spacing.md,
   },
   metadataRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    gap: Spacing.md,
   },
   metadataLabel: {
+    flex: 1,
     ...Typography.body,
   },
   metadataValue: {
     ...Typography.body,
     fontWeight: "600",
+  },
+  metadataDivider: {
+    height: 1,
+    backgroundColor: "rgba(128, 128, 128, 0.2)",
   },
   typeBadge: {
     paddingHorizontal: Spacing.md,
@@ -252,7 +381,7 @@ const styles = StyleSheet.create({
   linkButton: {
     flexDirection: "row",
     height: Spacing.buttonHeight,
-    borderRadius: BorderRadius.sm,
+    borderRadius: BorderRadius.md,
     justifyContent: "center",
     alignItems: "center",
     gap: Spacing.sm,
@@ -264,11 +393,13 @@ const styles = StyleSheet.create({
     ...Typography.button,
     color: "#FFFFFF",
   },
-  linkedSection: {
+  linkedCard: {
+    borderWidth: 1,
+    borderColor: "rgba(52, 199, 89, 0.3)",
+  },
+  linkedContent: {
     flexDirection: "row",
     alignItems: "center",
-    padding: Spacing.md,
-    borderRadius: BorderRadius.sm,
     gap: Spacing.md,
   },
   linkedText: {
