@@ -33,7 +33,8 @@ Preferred communication style: Simple, everyday language.
 - **Face Processing Pipeline**:
   1. Face detection using face-api.js with TensorFlow.js
   2. AI-powered anonymization via OpenAI GPT-4o for face analysis and DALL-E for generation
-  3. Optional improvement scoring via AWS Rekognition
+  3. Photo standardization using OpenAI GPT-4o to normalize lighting, sizing, zoom, and centering (512x512 output)
+  4. Improvement scoring via AWS Rekognition using standardized images for consistent comparisons
 
 ### Data Layer
 - **Database**: PostgreSQL with Drizzle ORM
