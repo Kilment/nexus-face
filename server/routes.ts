@@ -4,6 +4,7 @@ import session from "express-session";
 import crypto from "crypto";
 import { storage } from "./storage";
 import { processImageForFaceAnonymization } from "./face-processor";
+import { standardizePhoto } from "./photo-standardizer";
 import { insertPhotoSchema } from "@shared/schema";
 import { calculateImprovementScore, detectDemographics } from "./rekognition";
 
@@ -271,12 +272,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Missing required fields" });
       }
 
-      const demographics = await detectDemographics(processedImageBase64);
+      console.log("Standardizing photo for consistent lighting, sizing, and zoom...");
+      const standardizedImageBase64 = await standardizePhoto(processedImageBase64);
+      console.log("Photo standardization complete");
+
+      const demographics = await detectDemographics(standardizedImageBase64);
 
       const photo = await storage.createPhoto({
         userId: req.session.userId!,
         processedImageUrl: `data:image/png;base64,${processedImageBase64}`,
         processedImageBase64,
+        standardizedImageBase64,
         initials: initials.toUpperCase(),
         beforeAfter,
         locationCode,
@@ -304,16 +310,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await storage.updatePhotoLink(targetPhoto.id, photo.id);
         
         // Calculate improvement score if this is an "after" photo linking to a "before" photo
+        // Use standardized images for consistent Rekognition analysis
         if (photo.beforeAfter === "after" && targetPhoto.beforeAfter === "before") {
           const result = await calculateImprovementScore(
-            targetPhoto.processedImageBase64 || "",
-            photo.processedImageBase64 || ""
+            targetPhoto.standardizedImageBase64 || targetPhoto.processedImageBase64 || "",
+            photo.standardizedImageBase64 || photo.processedImageBase64 || ""
           );
           await storage.updatePhotoLink(photo.id, targetPhoto.id, result.score);
         } else if (photo.beforeAfter === "before" && targetPhoto.beforeAfter === "after") {
           const result = await calculateImprovementScore(
-            photo.processedImageBase64 || "",
-            targetPhoto.processedImageBase64 || ""
+            photo.standardizedImageBase64 || photo.processedImageBase64 || "",
+            targetPhoto.standardizedImageBase64 || targetPhoto.processedImageBase64 || ""
           );
           await storage.updatePhotoLink(targetPhoto.id, photo.id, result.score);
         }
