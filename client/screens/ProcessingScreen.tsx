@@ -60,9 +60,12 @@ export default function ProcessingScreen() {
       BackHandler.addEventListener("hardwareBackPress", onBackPress);
 
       return () => {
-        BackHandler.removeEventListener("hardwareBackPress", onBackPress);
+        // @ts-ignore
+        if (BackHandler.removeEventListener) {
+          BackHandler.removeEventListener("hardwareBackPress", onBackPress);
+        }
       };
-    }, [isProcessing, onBackPress])
+    }, [isProcessing])
   );
 
   useEffect(() => {
