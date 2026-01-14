@@ -43,7 +43,7 @@ export default function MainTabNavigator() {
           justifyContent: "center",
           alignItems: "center",
           height: Platform.select({ ios: 48, android: 72, web: 72 }),
-          paddingTop: 20,
+          paddingTop: 10,
         },
         tabBarStyle: {
           position: "absolute",
@@ -55,7 +55,7 @@ export default function MainTabNavigator() {
           borderTopWidth: 0,
           elevation: 0,
           height: Platform.select({ ios: 88, android: 72, web: 72 }),
-          paddingBottom: 0,
+          paddingBottom: 5,
           margin: 16,
           borderRadius: 32,
           bottom: 0,
@@ -104,7 +104,6 @@ export default function MainTabNavigator() {
     </Tab.Navigator>
   );
 }
-
 const styles = StyleSheet.create({
   iconContainer: {
     width: 44,
