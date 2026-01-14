@@ -63,6 +63,8 @@ export default function ProcessingScreen() {
         // @ts-ignore
         if (BackHandler.removeEventListener) {
           BackHandler.removeEventListener("hardwareBackPress", onBackPress);
+        } else if ((BackHandler as any).remove) {
+          (BackHandler as any).remove("hardwareBackPress", onBackPress);
         }
       };
     }, [isProcessing])

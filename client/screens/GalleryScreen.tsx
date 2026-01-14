@@ -39,7 +39,7 @@ interface PhotosResponse {
   photos: Photo[];
 }
 
-type FilterType = "all" | "before" | "after" | "linked" | "unlinked";
+type FilterType = "all" | "before" | "after" | "linked";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
@@ -80,8 +80,6 @@ export default function GalleryScreen() {
           return photo.beforeAfter === "after";
         case "linked":
           return photo.linkedPhotoId !== null;
-        case "unlinked":
-          return photo.linkedPhotoId === null;
         default:
           return true;
       }
@@ -210,12 +208,6 @@ export default function GalleryScreen() {
             selected={activeFilter === "linked"}
             onPress={() => handleFilterChange("linked")}
             icon="link"
-          />
-          <FilterChip
-            label="Unlinked"
-            selected={activeFilter === "unlinked"}
-            onPress={() => handleFilterChange("unlinked")}
-            icon="link-2"
           />
         </ScrollView>
       </View>

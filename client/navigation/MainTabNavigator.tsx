@@ -43,22 +43,25 @@ export default function MainTabNavigator() {
           position: "absolute",
           backgroundColor: Platform.select({
             ios: "transparent",
-            android: isDark ? "rgba(28, 28, 30, 0.95)" : "rgba(255, 255, 255, 0.95)",
-            web: isDark ? "rgba(28, 28, 30, 0.95)" : "rgba(255, 255, 255, 0.95)",
+            android: "transparent",
+            web: "transparent",
           }),
           borderTopWidth: 0,
           elevation: 0,
-          height: Platform.select({ ios: 88, android: 64, web: 64 }),
-          paddingBottom: Platform.select({ ios: 28, android: 8, web: 8 }),
+          height: Platform.select({ ios: 88, android: 72, web: 72 }),
+          paddingBottom: Platform.select({ ios: 28, android: 12, web: 12 }),
+          margin: 16,
+          borderRadius: 32,
+          bottom: 16,
+          overflow: "hidden",
         },
-        tabBarBackground: () =>
-          Platform.OS === "ios" ? (
-            <BlurView
-              intensity={80}
-              tint={isDark ? "dark" : "light"}
-              style={StyleSheet.absoluteFill}
-            />
-          ) : null,
+        tabBarBackground: () => (
+          <BlurView
+            intensity={80}
+            tint={isDark ? "dark" : "light"}
+            style={StyleSheet.absoluteFill}
+          />
+        ),
         headerShown: false,
       }}
     >
