@@ -49,7 +49,7 @@ export default function MainTabNavigator() {
           borderTopWidth: 0,
           elevation: 0,
           height: Platform.select({ ios: 88, android: 72, web: 72 }),
-          paddingBottom: Platform.select({ ios: 28, android: 12, web: 12 }),
+          paddingBottom: Platform.select({ ios: 28, android: 0, web: 0 }),
           margin: 16,
           borderRadius: 32,
           bottom: 16,
