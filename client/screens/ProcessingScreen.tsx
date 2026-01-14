@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from "react";
-import { View, StyleSheet, Alert, Dimensions, Platform } from "react-native";
+import React, { useEffect, useState, useCallback } from "react";
+import { View, StyleSheet, Alert, Dimensions, Platform, BackHandler } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
-import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
+import { useNavigation, useRoute, RouteProp, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import Animated, {
   useSharedValue,
@@ -39,6 +39,7 @@ export default function ProcessingScreen() {
 
   const [status, setStatus] = useState("Detecting face...");
   const [isComplete, setIsComplete] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(true);
   const [progress, setProgress] = useState(0);
 
   const scanLinePosition = useSharedValue(0);
@@ -46,6 +47,28 @@ export default function ProcessingScreen() {
   const pulseOpacity = useSharedValue(0.3);
   const progressWidth = useSharedValue(0);
   const progressGlow = useSharedValue(0);
+
+  useFocusEffect(
+    useCallback(() => {
+      const onBackPress = () => {
+        if (isProcessing) {
+          return true;
+        }
+        return false;
+      };
+
+      BackHandler.addEventListener("hardwareBackPress", onBackPress);
+
+      return () => BackHandler.removeEventListener("hardwareBackPress", onBackPress);
+    }, [isProcessing])
+  );
+
+  useEffect(() => {
+    navigation.setOptions({
+      headerLeft: () => null,
+      gestureEnabled: false,
+    });
+  }, [navigation]);
 
   useEffect(() => {
     scanLinePosition.value = withRepeat(
@@ -125,6 +148,7 @@ export default function ProcessingScreen() {
       await new Promise((resolve) => setTimeout(resolve, 300));
       updateProgress(100);
       setIsComplete(true);
+      setIsProcessing(false);
       revealHeight.value = withTiming(IMAGE_HEIGHT, { duration: 800, easing: Easing.out(Easing.ease) });
       setStatus("Complete!");
       hapticFeedback.success();
@@ -136,6 +160,7 @@ export default function ProcessingScreen() {
       });
     } catch (error) {
       console.error("Processing error:", error);
+      setIsProcessing(false);
       hapticFeedback.error();
       Alert.alert(
         "Processing Failed",

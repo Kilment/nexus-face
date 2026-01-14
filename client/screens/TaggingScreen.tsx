@@ -79,6 +79,12 @@ export default function TaggingScreen() {
       if (popCount > 0) {
         navigation.dispatch(StackActions.pop(popCount));
       }
+      
+      // Navigate to Gallery tab after popping the modals
+      const rootNav = navigation.getParent();
+      if (rootNav) {
+        rootNav.navigate("Main", { screen: "Gallery" });
+      }
     } catch (error) {
       console.error("Save error:", error);
       Alert.alert("Error", "Failed to save photo. Please try again.");
