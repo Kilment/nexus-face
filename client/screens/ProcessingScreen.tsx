@@ -59,8 +59,10 @@ export default function ProcessingScreen() {
 
       BackHandler.addEventListener("hardwareBackPress", onBackPress);
 
-      return () => BackHandler.removeEventListener("hardwareBackPress", onBackPress);
-    }, [isProcessing])
+      return () => {
+        BackHandler.removeEventListener("hardwareBackPress", onBackPress);
+      };
+    }, [isProcessing, onBackPress])
   );
 
   useEffect(() => {

@@ -123,10 +123,10 @@ export default function GalleryScreen() {
     <View style={styles.emptyContainer}>
       <Feather name="camera" size={64} color={theme.textTertiary} />
       <ThemedText style={[styles.emptyTitle, { color: theme.textSecondary }]}>
-        No photos yet
+        No Photos Yet
       </ThemedText>
       <ThemedText style={[styles.emptyText, { color: theme.textTertiary }]}>
-        Take or upload a photo to get started
+        Take or upload a photo to get started.
       </ThemedText>
     </View>
   );

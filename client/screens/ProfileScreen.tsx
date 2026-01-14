@@ -1,12 +1,12 @@
-import React from "react";
-import { View, StyleSheet, Pressable, Alert, ActivityIndicator, Dimensions, Platform } from "react-native";
+import React, { useState, useRef } from "react";
+import { View, StyleSheet, Pressable, Alert, ActivityIndicator, Dimensions, Platform, TextInput } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
 import { Feather } from "@expo/vector-icons";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -20,6 +20,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { useAuth } from "@/lib/auth-context";
 import { Spacing, BorderRadius, Typography } from "@/constants/theme";
 import { hapticFeedback } from "@/lib/haptics";
+import { apiRequest, queryClient } from "@/lib/query-client";
 import { ScrollView } from "react-native";
 
 interface PhotoPair {
@@ -55,8 +56,41 @@ export default function ProfileScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const headerHeight = useHeaderHeight();
   const { theme, isDark } = useTheme();
-  const { user, logout } = useAuth();
-  const [isLoggingOut, setIsLoggingOut] = React.useState(false);
+  const { user, logout, setUser } = useAuth();
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [isEditingUsername, setIsEditingUsername] = useState(false);
+  const [newUsername, setNewUsername] = useState(user?.username || "");
+  const usernameInputRef = useRef<TextInput>(null);
+
+  const updateProfileMutation = useMutation({
+    mutationFn: async (username: string) => {
+      const response = await apiRequest("PATCH", "/api/auth/profile", { username });
+      return response.json();
+    },
+    onSuccess: (data) => {
+      setUser(data.user);
+      setIsEditingUsername(false);
+      hapticFeedback.success();
+    },
+    onError: (error: any) => {
+      Alert.alert("Error", error.message || "Failed to update profile");
+      hapticFeedback.error();
+    },
+  });
+
+  const handleUpdateUsername = () => {
+    if (newUsername.trim().length < 2) {
+      Alert.alert("Error", "Username must be at least 2 characters");
+      return;
+    }
+    updateProfileMutation.mutate(newUsername);
+  };
+
+  const startEditing = () => {
+    setNewUsername(user?.username || "");
+    setIsEditingUsername(true);
+    setTimeout(() => usernameInputRef.current?.focus(), 100);
+  };
 
   const { data: statsData, isLoading: statsLoading } = useQuery<{ stats: UserStats }>({
     queryKey: ["/api/stats"],
@@ -210,7 +244,40 @@ export default function ProfileScreen() {
               </View>
             )}
           </View>
-          <ThemedText style={styles.username}>{user?.username || "User"}</ThemedText>
+          
+          <View style={styles.usernameContainer}>
+            {isEditingUsername ? (
+              <View style={styles.editContainer}>
+                <TextInput
+                  ref={usernameInputRef}
+                  style={[styles.usernameInput, { color: theme.text, borderColor: theme.tabIconSelected }]}
+                  value={newUsername}
+                  onChangeText={setNewUsername}
+                  autoFocus
+                  placeholder="Username"
+                  placeholderTextColor={theme.textTertiary}
+                  maxLength={20}
+                />
+                <View style={styles.editButtons}>
+                  <Pressable onPress={() => setIsEditingUsername(false)} style={styles.editIconButton}>
+                    <Feather name="x" size={20} color={theme.error} />
+                  </Pressable>
+                  <Pressable onPress={handleUpdateUsername} disabled={updateProfileMutation.isPending} style={styles.editIconButton}>
+                    {updateProfileMutation.isPending ? (
+                      <ActivityIndicator size="small" color={theme.tabIconSelected} />
+                    ) : (
+                      <Feather name="check" size={20} color={theme.success} />
+                    )}
+                  </Pressable>
+                </View>
+              </View>
+            ) : (
+              <Pressable onPress={startEditing} style={styles.usernameWrapper}>
+                <ThemedText style={styles.username}>{user?.username || "Anonymous"}</ThemedText>
+                <Feather name="edit-2" size={14} color={theme.textTertiary} style={styles.editIcon} />
+              </Pressable>
+            )}
+          </View>
         </View>
 
         <View style={styles.section}>
@@ -239,7 +306,7 @@ export default function ProfileScreen() {
               <View style={styles.emptyStats}>
                 <Feather name="bar-chart-2" size={32} color={theme.textTertiary} />
                 <ThemedText style={[styles.emptyText, { color: theme.textSecondary }]}>
-                  Take before/after photos to see your improvement stats
+                  Take before/after photos to see your improvement stats.
                 </ThemedText>
               </View>
             </GlassCard>
@@ -283,7 +350,7 @@ export default function ProfileScreen() {
         </View>
 
         <ThemedText style={[styles.footer, { color: theme.textTertiary }]}>
-          DE-ID Face - Anonymize and organize facial photos
+          DE-ID Face - Anonymize Facial Photos & Analyze Results
         </ThemedText>
       </ScrollView>
     </ThemedView>
@@ -325,6 +392,42 @@ const styles = StyleSheet.create({
   },
   username: {
     ...Typography.h2,
+  },
+  usernameContainer: {
+    minHeight: 40,
+    justifyContent: "center",
+  },
+  usernameWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+  },
+  editIcon: {
+    marginTop: 4,
+  },
+  editContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    backgroundColor: "rgba(255, 255, 255, 0.05)",
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.1)",
+  },
+  usernameInput: {
+    ...Typography.h2,
+    minWidth: 150,
+    padding: 0,
+    margin: 0,
+  },
+  editButtons: {
+    flexDirection: "row",
+    gap: Spacing.xs,
+  },
+  editIconButton: {
+    padding: Spacing.xs,
   },
   section: {
     gap: Spacing.sm,

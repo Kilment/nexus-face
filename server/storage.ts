@@ -62,6 +62,16 @@ export class DatabaseStorage implements IStorage {
     return photo || undefined;
   }
 
+  async updateUser(id: string, update: Partial<Omit<User, "id">>): Promise<User> {
+    const [user] = await db
+      .update(users)
+      .set(update)
+      .where(eq(users.id, id))
+      .returning();
+    if (!user) throw new Error("User not found");
+    return user;
+  }
+
   async getPhotosByUserId(userId: string): Promise<Photo[]> {
     return await db.select().from(photos).where(eq(photos.userId, userId)).orderBy(photos.createdAt);
   }

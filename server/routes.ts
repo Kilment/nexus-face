@@ -95,7 +95,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.createUser({
         email,
         passwordHash,
-        username: username || email.split("@")[0],
+        username: username || "Anonymous",
         profileImageUrl: null,
       });
 
@@ -215,6 +215,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(401).json({ error: "User not found" });
     }
     res.json({ user });
+  });
+
+  app.patch("/api/auth/profile", requireAuth, async (req, res) => {
+    try {
+      const { username } = req.body;
+      if (!username || username.length < 2) {
+        return res.status(400).json({ error: "Username must be at least 2 characters" });
+      }
+
+      const updatedUser = await storage.updateUser(req.session.userId!, { username });
+      res.json({ user: updatedUser });
+    } catch (error) {
+      console.error("Profile update error:", error);
+      res.status(500).json({ error: "Failed to update profile" });
+    }
   });
 
   app.post("/api/auth/logout", (req, res) => {
