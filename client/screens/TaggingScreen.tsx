@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, StyleSheet, Pressable, Alert, TextInput } from "react-native";
+import { View, StyleSheet, Pressable, Alert, TextInput, ActivityIndicator } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { useNavigation, useRoute, RouteProp, StackActions } from "@react-navigation/native";
@@ -95,6 +95,12 @@ export default function TaggingScreen() {
 
   return (
     <ThemedView style={styles.container}>
+      {isSaving && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color={theme.tabIconSelected} />
+          <ThemedText style={styles.loadingText}>Saving photo...</ThemedText>
+        </View>
+      )}
       <KeyboardAwareScrollViewCompat
         contentContainerStyle={[
           styles.content,
@@ -283,5 +289,16 @@ const styles = StyleSheet.create({
   },
   segmentText: {
     ...Typography.button,
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 1000,
+  },
+  loadingText: {
+    marginTop: Spacing.md,
+    color: "#FFFFFF",
+    fontWeight: "600",
   },
 });
