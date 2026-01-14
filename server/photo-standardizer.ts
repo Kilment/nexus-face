@@ -111,7 +111,7 @@ function applyBrightnessContrast(
   imageData: ImageData,
   brightness: number,
   contrast: number
-): ImageData {
+): void {
   const data = imageData.data;
   const factor = (259 * (contrast + 255)) / (255 * (259 - contrast));
   
@@ -123,8 +123,34 @@ function applyBrightnessContrast(
       data[i + c] = Math.max(0, Math.min(255, value));
     }
   }
+}
+
+function normalizeHistogram(imageData: ImageData): void {
+  const data = imageData.data;
+  let minLum = 255;
+  let maxLum = 0;
   
-  return imageData;
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] === 0) continue;
+    const lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    if (lum < minLum) minLum = lum;
+    if (lum > maxLum) maxLum = lum;
+  }
+  
+  const TARGET_MIN = 20;
+  const TARGET_MAX = 235;
+  
+  if (maxLum - minLum < 10) return;
+  
+  const scale = (TARGET_MAX - TARGET_MIN) / (maxLum - minLum);
+  const offset = TARGET_MIN - minLum * scale;
+  
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] === 0) continue;
+    for (let c = 0; c < 3; c++) {
+      data[i + c] = Math.max(0, Math.min(255, data[i + c] * scale + offset));
+    }
+  }
 }
 
 export async function standardizePhoto(imageBase64: string): Promise<string> {
@@ -178,18 +204,24 @@ export async function standardizePhoto(imageBase64: string): Promise<string> {
     drawX, drawY, drawWidth, drawHeight
   );
   
+  const imageData = ctx.getImageData(0, 0, STANDARD_WIDTH, STANDARD_HEIGHT);
+  
+  normalizeHistogram(imageData as unknown as ImageData);
+  
   const brightnessAdjust = analysis.adjustments.brightnessAdjust || 0;
   const contrastAdjust = analysis.adjustments.contrastAdjust || 0;
   
   if (brightnessAdjust !== 0 || contrastAdjust !== 0) {
-    const imageData = ctx.getImageData(0, 0, STANDARD_WIDTH, STANDARD_HEIGHT);
     applyBrightnessContrast(
       imageData as unknown as ImageData,
       brightnessAdjust,
       contrastAdjust * 2.55
     );
-    ctx.putImageData(imageData, 0, 0);
   }
+  
+  ctx.putImageData(imageData, 0, 0);
+  
+  console.log("Standardization applied: histogram normalization + AI-guided adjustments");
   
   const pngBuffer = canvas.toBuffer("image/png");
   return pngBuffer.toString("base64");

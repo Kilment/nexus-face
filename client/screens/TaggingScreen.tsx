@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { View, StyleSheet, Pressable, Alert, TextInput } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "expo-image";
-import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
+import { useNavigation, useRoute, RouteProp, StackActions } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { HeaderButton } from "@react-navigation/elements";
 import { ThemedText } from "@/components/ThemedText";
@@ -74,7 +74,11 @@ export default function TaggingScreen() {
       });
 
       queryClient.invalidateQueries({ queryKey: ["/api/photos"] });
-      navigation.popToTop();
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+      const popCount = Math.min(2, navigation.getState().routes.length - 1);
+      if (popCount > 0) {
+        navigation.dispatch(StackActions.pop(popCount));
+      }
     } catch (error) {
       console.error("Save error:", error);
       Alert.alert("Error", "Failed to save photo. Please try again.");
