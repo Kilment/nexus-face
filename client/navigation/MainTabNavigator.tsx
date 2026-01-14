@@ -36,13 +36,14 @@ export default function MainTabNavigator() {
         tabBarInactiveTintColor: theme.tabIconDefault,
         tabBarShowLabel: true,
         tabBarLabelStyle: {
-          fontSize: 11,
+          fontSize: 12,
           fontWeight: "500",
         },
         tabBarItemStyle: {
           justifyContent: "center",
           alignItems: "center",
           height: Platform.select({ ios: 48, android: 72, web: 72 }),
+          paddingTop: 20,
         },
         tabBarStyle: {
           position: "absolute",
@@ -57,7 +58,7 @@ export default function MainTabNavigator() {
           paddingBottom: 0,
           margin: 16,
           borderRadius: 32,
-          bottom: 16,
+          bottom: 0,
           overflow: "hidden",
         },
         tabBarBackground: () => (
