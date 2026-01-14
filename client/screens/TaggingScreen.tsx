@@ -289,6 +289,7 @@ const styles = StyleSheet.create({
   },
   segmentText: {
     ...Typography.button,
+  },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0, 0, 0, 0.7)",
