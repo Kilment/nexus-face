@@ -108,7 +108,7 @@ export default function LoginScreen() {
             Face
           </ThemedText>
           <ThemedText style={[styles.tagline, { color: theme.textSecondary }]}>
-            Anonymize and organize facial photos
+            Anonymize Medical Facial Photos
           </ThemedText>
         </View>
 
@@ -195,12 +195,12 @@ export default function LoginScreen() {
 
           <Pressable onPress={toggleMode} style={styles.toggleButton}>
             <ThemedText style={[styles.toggleText, { color: theme.tabIconSelected }]}>
-              {isSignUp ? "Already have an account? Log In" : "Don't have an account? Sign Up"}
+              {isSignUp ? "Already have an account? Log In" : "No Account? Sign Up!"}
             </ThemedText>
           </Pressable>
 
           <ThemedText style={[styles.termsText, { color: theme.textTertiary }]}>
-            By continuing, you agree to our Terms of Service and Privacy Policy
+            By continuing, you agree to our terms of service and privacy policy.
           </ThemedText>
         </View>
       </KeyboardAwareScrollViewCompat>

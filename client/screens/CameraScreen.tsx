@@ -110,9 +110,9 @@ export default function CameraScreen() {
         }
       }
     } catch (error) {
-      console.error("Error taking photo:", error);
+      console.error("Error Taking Photo:", error);
       hapticFeedback.error();
-      Alert.alert("Error", "Failed to capture photo. Please try again.");
+      Alert.alert("Error", "Failed to capture photo, please try again.");
     } finally {
       setIsCapturing(false);
     }
@@ -142,9 +142,9 @@ export default function CameraScreen() {
         }
       }
     } catch (error) {
-      console.error("Error picking images:", error);
+      console.error("Error Picking Images:", error);
       hapticFeedback.error();
-      Alert.alert("Error", "Failed to pick images. Please try again.");
+      Alert.alert("Error", "Failed to pick images, please try again.");
     }
   };
 
@@ -163,9 +163,9 @@ export default function CameraScreen() {
         navigation.navigate("Processing", { imageBase64: result.assets[0].base64 });
       }
     } catch (error) {
-      console.error("Error picking image:", error);
+      console.error("Error Picking Image:", error);
       hapticFeedback.error();
-      Alert.alert("Error", "Failed to pick image. Please try again.");
+      Alert.alert("Error", "Failed to pick image, please try again.");
     }
   };
 
@@ -221,7 +221,7 @@ export default function CameraScreen() {
           <Feather name="camera-off" size={64} color={theme.textSecondary} />
           <ThemedText style={styles.permissionTitle}>Camera Access Required</ThemedText>
           <ThemedText style={[styles.permissionText, { color: theme.textSecondary }]}>
-            DE-ID Face needs camera access to capture and process photos.
+            Application needs camera access to capture and process photos.
           </ThemedText>
           <GlassButton
             title="Enable Camera"
@@ -230,7 +230,7 @@ export default function CameraScreen() {
             style={styles.glassButtonStyle}
           />
           <GlassButton
-            title="Upload from Library"
+            title="Upload Photos"
             icon="upload"
             variant="secondary"
             onPress={pickSingleImage}

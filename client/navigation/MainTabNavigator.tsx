@@ -43,7 +43,7 @@ export default function MainTabNavigator() {
           justifyContent: "center",
           alignItems: "center",
           height: Platform.select({ ios: 48, android: 72, web: 72 }),
-          paddingTop: 10,
+          paddingTop: 15,
         },
         tabBarStyle: {
           position: "absolute",
