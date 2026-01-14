@@ -39,6 +39,11 @@ export default function MainTabNavigator() {
           fontSize: 11,
           fontWeight: "500",
         },
+        tabBarItemStyle: {
+          justifyContent: "center",
+          alignItems: "center",
+          height: Platform.select({ ios: 48, android: 72, web: 72 }),
+        },
         tabBarStyle: {
           position: "absolute",
           backgroundColor: Platform.select({
@@ -49,7 +54,7 @@ export default function MainTabNavigator() {
           borderTopWidth: 0,
           elevation: 0,
           height: Platform.select({ ios: 88, android: 72, web: 72 }),
-          paddingBottom: Platform.select({ ios: 28, android: 0, web: 0 }),
+          paddingBottom: 0,
           margin: 16,
           borderRadius: 32,
           bottom: 16,
