@@ -83,7 +83,13 @@ export default function TaggingScreen() {
       // Navigate to Gallery tab after popping the modals
       const rootNav = navigation.getParent();
       if (rootNav) {
-        rootNav.navigate("Main", { screen: "Gallery" });
+        rootNav.navigate("Main", { 
+          screen: "GalleryTab",
+          params: { 
+            screen: "Gallery",
+            params: { scrollToTop: true }
+          }
+        });
       }
     } catch (error) {
       console.error("Save error:", error);

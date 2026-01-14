@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef, useEffect } from "react";
 import {
   View,
   StyleSheet,
@@ -16,7 +16,7 @@ import { useHeaderHeight } from "@react-navigation/elements";
 import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
 import { Feather } from "@expo/vector-icons";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useQuery } from "@tanstack/react-query";
 import Animated, {
@@ -49,8 +49,19 @@ export default function GalleryScreen() {
   const headerHeight = useHeaderHeight();
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<NavigationProp>();
+  const route = useRoute();
+  const flatListRef = useRef<FlatList>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<FilterType>("all");
+
+  useEffect(() => {
+    const params = route.params as { scrollToTop?: boolean } | undefined;
+    if (params?.scrollToTop && flatListRef.current) {
+      flatListRef.current.scrollToOffset({ offset: 0, animated: true });
+      // Clear the param after scrolling
+      navigation.setParams({ scrollToTop: undefined } as any);
+    }
+  }, [route.params]);
 
   const { data, isLoading, refetch, isRefetching } = useQuery<PhotosResponse>({
     queryKey: ["/api/photos"],
@@ -218,6 +229,7 @@ export default function GalleryScreen() {
         </View>
       ) : (
         <FlatList
+          ref={flatListRef}
           data={filteredPhotos}
           renderItem={renderPhoto}
           keyExtractor={(item) => item.id}
