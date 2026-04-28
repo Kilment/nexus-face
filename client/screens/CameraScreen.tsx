@@ -101,7 +101,7 @@ export default function CameraScreen() {
     try {
       const photo = await cameraRef.current.takePictureAsync({
         base64: true,
-        quality: 0.8,
+        quality: 1,
       });
 
       if (photo?.base64) {
@@ -128,7 +128,7 @@ export default function CameraScreen() {
         mediaTypes: ["images"],
         allowsMultipleSelection: true,
         selectionLimit: 10,
-        quality: 0.8,
+        quality: 1,
         base64: true,
       });
 
@@ -158,7 +158,7 @@ export default function CameraScreen() {
         mediaTypes: ["images"],
         allowsEditing: true,
         aspect: [3, 4],
-        quality: 0.8,
+        quality: 1,
         base64: true,
       });
 
@@ -386,7 +386,7 @@ export default function CameraScreen() {
 
         <View style={[styles.hintContainer, { top: ovalCenterY + OVAL_HEIGHT / 2 + 24 }]}>
           <ThemedText style={styles.hintText}>
-            Position your face within the oval
+            Position Face Within Oval
           </ThemedText>
         </View>
       </View>
@@ -496,7 +496,7 @@ export default function CameraScreen() {
       >
         <GlassIconButton
           icon="image"
-          size={56}
+          size={52}
           onPress={pickImages}
           isDark={isDark}
         />
@@ -510,7 +510,7 @@ export default function CameraScreen() {
 
         <GlassIconButton
           icon="folder"
-          size={56}
+          size={52}
           onPress={importZipBatch}
           isDark={isDark}
         />
@@ -552,8 +552,12 @@ function GlassIconButton({ icon, onPress, isDark, size = 50, active, activeColor
     >
       <View style={[styles.glassIconButton, { width: size, height: size, borderRadius: size / 2 }]}>
         {Platform.OS === "ios" ? (
-          <BlurView intensity={60} tint={isDark ? "dark" : "light"} style={[styles.glassIconContent, { borderRadius: size / 2 }]}>
-            <Feather name={icon} size={size * 0.48} color={active && activeColor ? activeColor : "#FFFFFF"} />
+          <BlurView
+            intensity={60}
+            tint={isDark ? "dark" : "light"}
+            style={[styles.glassIconBlur, { borderRadius: size / 2, width: size, height: size }]}
+          >
+            <Feather name={icon} size={size * 0.46} color={active && activeColor ? activeColor : "#FFFFFF"} />
           </BlurView>
         ) : (
           <View style={[styles.glassIconContent, { backgroundColor: "rgba(0, 0, 0, 0.4)", borderRadius: size / 2 }]}>
@@ -715,6 +719,11 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
+  },
+  glassIconBlur: {
+    justifyContent: "center",
+    alignItems: "center",
+    overflow: "hidden",
   },
   captureButton: {
     width: 80,

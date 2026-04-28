@@ -1,5 +1,12 @@
 import React, { useState } from "react";
-import { View, StyleSheet, Pressable, Alert, TextInput, ActivityIndicator } from "react-native";
+import {
+  View,
+  StyleSheet,
+  Pressable,
+  Alert,
+  TextInput,
+  ActivityIndicator,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { useNavigation, useRoute, RouteProp, StackActions } from "@react-navigation/native";
@@ -33,23 +40,27 @@ export default function TaggingScreen() {
   React.useLayoutEffect(() => {
     navigation.setOptions({
       headerLeft: () => (
-        <View style={{ paddingLeft: Spacing.xl }}>
+        <View style={styles.headerChromeSide}>
           <Pressable
             onPress={() => navigation.goBack()}
             hitSlop={12}
             style={styles.headerAction}
+            accessibilityRole="button"
+            accessibilityLabel="Cancel"
           >
             <ThemedText style={{ color: theme.tabIconSelected }}>Cancel</ThemedText>
           </Pressable>
         </View>
       ),
       headerRight: () => (
-        <View style={{ paddingRight: Spacing.xl }}>
+        <View style={[styles.headerChromeSide, styles.headerChromeSideEnd]}>
           <Pressable
             onPress={handleSave}
             disabled={!isFormValid || isSaving}
             hitSlop={12}
             style={styles.headerAction}
+            accessibilityRole="button"
+            accessibilityLabel="Save"
           >
             <ThemedText
               style={{
@@ -313,11 +324,21 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontWeight: "600",
   },
+  headerChromeSide: {
+    justifyContent: "center",
+    minHeight: 44,
+    paddingLeft: Spacing.md,
+    paddingVertical: 0,
+  },
+  headerChromeSideEnd: {
+    paddingLeft: 0,
+    paddingRight: Spacing.md,
+  },
   headerAction: {
     minHeight: 36,
-    minWidth: 56,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    minWidth: 44,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
     borderRadius: BorderRadius.full,
     justifyContent: "center",
     alignItems: "center",

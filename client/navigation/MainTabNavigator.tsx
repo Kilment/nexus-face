@@ -1,13 +1,22 @@
 import React from "react";
+import type { BottomTabBarButtonProps } from "@react-navigation/bottom-tabs";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { PlatformPressable } from "@react-navigation/elements";
 import { Feather } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { Platform, StyleSheet, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import GalleryStackNavigator from "@/navigation/GalleryStackNavigator";
 import CameraStackNavigator from "@/navigation/CameraStackNavigator";
 import ProfileStackNavigator from "@/navigation/ProfileStackNavigator";
 import { useTheme } from "@/hooks/useTheme";
 import { BorderRadius } from "@/constants/theme";
+
+/** Must match `tabPill` width/height so TabBarIcon’s wrapper isn’t 31×28 over a 84×40 pill (that skews layout). */
+const TAB_PILL_WIDTH = 84;
+const TAB_PILL_HEIGHT = 40;
+/** Inner horizontal padding inside the floating pill (added to safe-area horizontal inset). */
+const TAB_BAR_INNER_PADDING_H = 12;
 
 export type MainTabParamList = {
   GalleryTab: undefined;
@@ -29,14 +38,28 @@ function TabPill({
   isDark: boolean;
 }) {
   return (
-    <View style={[styles.tabPill, focused && (isDark ? styles.tabPillFocusedDark : styles.tabPillFocusedLight)]}>
-      <Feather name={icon} size={21} color={color} />
+    <View
+      style={[styles.tabPill, focused && (isDark ? styles.tabPillFocusedDark : styles.tabPillFocusedLight)]}
+    >
+      <Feather name={icon} size={20} color={color} />
     </View>
   );
 }
 
+/** Default tab uses `justifyContent: "flex-start"` for column layout; center so pills sit in the pill bar. */
+function CenteredTabBarButton(props: BottomTabBarButtonProps) {
+  const { style, ...rest } = props;
+  return (
+    <PlatformPressable
+      {...rest}
+      style={[style, { justifyContent: "center", alignItems: "center" }]}
+    />
+  );
+}
+
 export default function MainTabNavigator() {
-  const { theme, isDark } = useTheme();
+  const { isDark } = useTheme();
+  const insets = useSafeAreaInsets();
 
   return (
     <Tab.Navigator
@@ -45,11 +68,17 @@ export default function MainTabNavigator() {
         tabBarActiveTintColor: isDark ? "#35A0FF" : "#0A84FF",
         tabBarInactiveTintColor: isDark ? "#D5DAE1" : "#A8AFB8",
         tabBarShowLabel: false,
+        tabBarButton: (buttonProps) => <CenteredTabBarButton {...buttonProps} />,
+        tabBarIconStyle: styles.tabBarIconWrap,
         tabBarItemStyle: styles.tabBarItem,
-        tabBarStyle: {
-          ...styles.tabBar,
-          shadowOpacity: isDark ? 0.42 : 0.16,
-        },
+        tabBarStyle: [
+          styles.tabBar,
+          {
+            paddingBottom: 6 + insets.bottom,
+            paddingHorizontal: TAB_BAR_INNER_PADDING_H + Math.max(insets.left, insets.right),
+            shadowOpacity: isDark ? 0.42 : 0.16,
+          },
+        ],
         tabBarBackground: () => (
           <View style={styles.tabBarBackground}>
             <BlurView intensity={95} tint={isDark ? "dark" : "light"} style={StyleSheet.absoluteFill} />
@@ -115,9 +144,8 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
     borderTopWidth: 0,
     elevation: 0,
-    height: Platform.select({ ios: 74, android: 72, web: 72 }),
-    paddingBottom: Platform.select({ ios: 4, android: 6, web: 6 }),
-    margin: 16,
+    height: Platform.select({ ios: 76, android: 74, web: 74 }),
+    margin: Platform.select({ ios: 14, android: 16, web: 16 }),
     borderRadius: 34,
     bottom: 0,
     overflow: "hidden",
@@ -125,12 +153,17 @@ const styles = StyleSheet.create({
     shadowRadius: 22,
     shadowOffset: { width: 0, height: 10 },
   },
+  tabBarIconWrap: {
+    width: TAB_PILL_WIDTH,
+    height: TAB_PILL_HEIGHT,
+  },
   tabBarItem: {
     justifyContent: "center",
     alignItems: "center",
-    paddingTop: Platform.select({ ios: 4, android: 8, web: 8 }),
-    marginHorizontal: 8,
-    marginVertical: Platform.select({ ios: 2, android: 6, web: 6 }),
+    flex: 1,
+    marginHorizontal: 0,
+    marginVertical: 0,
+    paddingVertical: 0,
   },
   tabBarBackground: {
     ...StyleSheet.absoluteFillObject,
@@ -164,8 +197,8 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255, 255, 255, 0.24)",
   },
   tabPill: {
-    width: 92,
-    height: 44,
+    width: TAB_PILL_WIDTH,
+    height: TAB_PILL_HEIGHT,
     borderRadius: BorderRadius.full,
     alignItems: "center",
     justifyContent: "center",

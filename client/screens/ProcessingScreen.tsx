@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useMemo } from "react";
 import { View, StyleSheet, Alert, Dimensions, Platform, BackHandler } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BlurView } from "expo-blur";
@@ -13,7 +13,6 @@ import Animated, {
   withSequence,
   Easing,
   interpolate,
-  withDelay,
 } from "react-native-reanimated";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
@@ -22,6 +21,7 @@ import { Spacing, BorderRadius } from "@/constants/theme";
 import { apiRequest } from "@/lib/query-client";
 import { hapticFeedback } from "@/lib/haptics";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
+import { base64ToDataUri } from "@/lib/base64-data-uri";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 type ProcessingRouteProp = RouteProp<RootStackParamList, "Processing">;
@@ -36,6 +36,7 @@ export default function ProcessingScreen() {
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute<ProcessingRouteProp>();
   const { imageBase64 } = route.params;
+  const previewUri = useMemo(() => base64ToDataUri(imageBase64), [imageBase64]);
 
   const [status, setStatus] = useState("Detecting face...");
   const [isComplete, setIsComplete] = useState(false);
@@ -43,7 +44,8 @@ export default function ProcessingScreen() {
   const [progress, setProgress] = useState(0);
 
   const scanLinePosition = useSharedValue(0);
-  const revealHeight = useSharedValue(0);
+  /** Full height from mount so oval shows the preview (bright layer) immediately; avoids a black/dim oval before decode completes. */
+  const revealHeight = useSharedValue(IMAGE_HEIGHT);
   const pulseOpacity = useSharedValue(0.3);
   const progressWidth = useSharedValue(0);
   const progressGlow = useSharedValue(0);
@@ -157,7 +159,6 @@ export default function ProcessingScreen() {
       updateProgress(100);
       setIsComplete(true);
       setIsProcessing(false);
-      revealHeight.value = withTiming(IMAGE_HEIGHT, { duration: 800, easing: Easing.out(Easing.ease) });
       setStatus("Complete!");
       hapticFeedback.success();
 
@@ -201,7 +202,7 @@ export default function ProcessingScreen() {
         <View style={styles.imageWrapper}>
           <View style={[styles.imageContainer, { width: IMAGE_WIDTH, height: IMAGE_HEIGHT }]}>
             <Image
-              source={{ uri: `data:image/jpeg;base64,${imageBase64}` }}
+              source={{ uri: previewUri }}
               style={styles.previewImage}
               contentFit="cover"
             />
@@ -209,7 +210,7 @@ export default function ProcessingScreen() {
 
             <Animated.View style={[styles.revealContainer, revealMaskStyle]}>
               <Image
-                source={{ uri: `data:image/jpeg;base64,${imageBase64}` }}
+                source={{ uri: previewUri }}
                 style={[styles.previewImage, { height: IMAGE_HEIGHT }]}
                 contentFit="cover"
               />
@@ -321,7 +322,7 @@ const styles = StyleSheet.create({
   },
   darkOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    backgroundColor: "rgba(0, 0, 0, 0.28)",
   },
   revealContainer: {
     position: "absolute",

@@ -54,7 +54,7 @@ export default function StudiesListScreen() {
           paddingTop: headerHeight + Spacing.md,
           paddingBottom: tabBarHeight + Spacing.xl + 140,
           paddingHorizontal: Spacing.lg,
-          gap: Spacing.md,
+          gap: Spacing.sm,
           flexGrow: 1,
         }}
         ListEmptyComponent={

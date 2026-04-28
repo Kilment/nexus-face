@@ -180,7 +180,7 @@ export default function GalleryScreen() {
                 style={[styles.searchInput, { color: theme.text }]}
                 value={searchQuery}
                 onChangeText={setSearchQuery}
-                placeholder="Search Initials/Location..."
+                placeholder="Search Patient Initials..."
                 placeholderTextColor={theme.textTertiary}
               />
               {searchQuery.length > 0 ? (

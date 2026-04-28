@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Dimensions, Image as RNImage, Modal, Pressable, StyleSheet, View } from "react-native";
+import { Image as RNImage, Modal, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
 import { Image } from "expo-image";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -18,9 +18,10 @@ type Props = {
 export function PhotoLightboxModal({ uri, onClose }: Props) {
   const visible = Boolean(uri);
   const insets = useSafeAreaInsets();
-  const { width: winW, height: winH } = Dimensions.get("window");
-  const maxW = Math.min(winW - H_PAD * 2, 560);
-  const maxH = Math.min(winH - insets.top - insets.bottom - H_PAD * 2, winH * 0.82);
+  const { width: winW, height: winH } = useWindowDimensions();
+  /** Match almost full usable width — old 560pt cap unnecessarily limited sharpness on large phones/tablets */
+  const maxW = Math.max(0, winW - H_PAD * 2);
+  const maxH = Math.min(winH - insets.top - insets.bottom - H_PAD * 2, winH * 0.93);
 
   const [size, setSize] = useState<{ width: number; height: number }>(() => ({
     width: maxW,
@@ -50,7 +51,13 @@ export function PhotoLightboxModal({ uri, onClose }: Props) {
         <View pointerEvents="box-none" style={styles.centerLayer}>
           {uri ? (
             <View style={[styles.frame, { width: size.width, height: size.height }]}>
-              <Image source={{ uri }} style={StyleSheet.absoluteFill} contentFit="contain" />
+              <Image
+                source={{ uri }}
+                style={StyleSheet.absoluteFill}
+                contentFit="contain"
+                priority="high"
+                allowDownscaling={false}
+              />
             </View>
           ) : null}
           <Pressable

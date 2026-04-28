@@ -7,6 +7,7 @@ import {
   Alert,
   ActivityIndicator,
   Platform,
+  useWindowDimensions,
 } from "react-native";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -43,6 +44,12 @@ export default function PhotoDetailScreen() {
   const rootNav = useNavigation<RootNavProp>();
   const route = useRoute<PhotoDetailRouteProp>();
   const { photoId } = route.params;
+  const { width: windowWidth } = useWindowDimensions();
+  /** Old fixed 260×340dp box upscaled blurry data-URI renders; span content width minus card padding instead */
+  const portraitAspect = 340 / 260;
+  const horizontalFramePadding = Spacing.lg * 2 + Spacing.md * 2 + 8;
+  const imageDisplayWidth = Math.max(220, windowWidth - horizontalFramePadding);
+  const imageDisplayHeight = imageDisplayWidth * portraitAspect;
 
   const { data, isLoading } = useQuery<PhotoResponse>({
     queryKey: ["/api/photos", photoId],
@@ -68,13 +75,15 @@ export default function PhotoDetailScreen() {
   React.useLayoutEffect(() => {
     galleryNav.setOptions({
       headerRight: () => (
-        <View style={{ paddingRight: Spacing.xl }}>
+        <View style={styles.headerChromeSide}>
           <Pressable
             onPress={handleDelete}
             hitSlop={12}
             style={styles.headerAction}
+            accessibilityRole="button"
+            accessibilityLabel="Delete photo"
           >
-            <Feather name="trash-2" size={22} color={theme.error} />
+            <Feather name="trash-2" size={21} color={theme.error} />
           </Pressable>
         </View>
       ),
@@ -140,8 +149,9 @@ export default function PhotoDetailScreen() {
             >
               <Image
                 source={{ uri: photo.processedImageUrl }}
-                style={styles.image}
+                style={[styles.image, { width: imageDisplayWidth, height: imageDisplayHeight }]}
                 contentFit="contain"
+                allowDownscaling={false}
               />
               {(photo.gender || photo.ageRange) ? (
                 <View style={styles.demographicOverlay}>
@@ -165,8 +175,9 @@ export default function PhotoDetailScreen() {
             >
               <Image
                 source={{ uri: photo.processedImageUrl }}
-                style={styles.image}
+                style={[styles.image, { width: imageDisplayWidth, height: imageDisplayHeight }]}
                 contentFit="contain"
+                allowDownscaling={false}
               />
               {(photo.gender || photo.ageRange) ? (
                 <View style={styles.demographicOverlay}>
@@ -271,7 +282,9 @@ export default function PhotoDetailScreen() {
             onPress={handleLink}
           >
             <Feather name="link" size={20} color="#FFFFFF" />
-            <ThemedText style={styles.linkButtonText}>Link to Pair</ThemedText>
+            <ThemedText style={styles.linkButtonText}>
+              {photo.beforeAfter === "before" ? "Link After Photo" : "Link Before Photo"}
+            </ThemedText>
           </Pressable>
         ) : null}
 
@@ -315,8 +328,6 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   image: {
-    width: 260,
-    height: 340,
     borderRadius: BorderRadius.md,
   },
   demographicOverlay: {
@@ -409,9 +420,14 @@ const styles = StyleSheet.create({
     ...Typography.body,
     flex: 1,
   },
+  headerChromeSide: {
+    justifyContent: "center",
+    minHeight: 44,
+    paddingRight: Spacing.md,
+  },
   headerAction: {
-    minHeight: 32,
-    minWidth: 32,
+    minHeight: 44,
+    minWidth: 44,
     alignItems: "center",
     justifyContent: "center",
   },

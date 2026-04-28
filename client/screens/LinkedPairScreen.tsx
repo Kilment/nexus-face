@@ -529,7 +529,7 @@ export default function LinkedPairScreen() {
                 Pair Analysis Results
               </ThemedText>
               <ThemedText style={[styles.resultsHeadline, { color: theme.tabIconSelected }]}>
-                ΔAge {signed(metrics.deltaPredictedFacialAge)}y
+                ΔAge {signed(metrics.deltaPredictedFacialAge)}Y
               </ThemedText>
               <ThemedText style={[styles.resultsSubhead, { color: theme.textTertiary }]}>
                 Tap Metrics

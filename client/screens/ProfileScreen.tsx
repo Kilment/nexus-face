@@ -298,7 +298,7 @@ export default function ProfileScreen() {
             {pair.beforePhoto.initials}
           </ThemedText>
           <ThemedText style={[styles.pairScore, { color: theme.tabIconSelected }]}>
-            ΔAge {formatSigned(pair.metrics.deltaPredictedFacialAge)}y
+            ΔAge {formatSigned(pair.metrics.deltaPredictedFacialAge)}Y
           </ThemedText>
           <ThemedText style={[styles.pairConfidence, { color: theme.textTertiary }]}>
             ΔWrinkles {formatSigned(pair.metrics.deltaWrinkles)} · Firmness {formatSigned(pair.metrics.perceivedSkinFirmnessDelta)}
@@ -379,9 +379,6 @@ export default function ProfileScreen() {
               </View>
             ) : null}
           </View>
-          <ThemedText style={[styles.avatarCaption, { color: theme.textTertiary }]}>
-            Tap to update photo
-          </ThemedText>
 
           <View style={styles.usernameContainer}>
             {isEditingUsername ? (
@@ -434,7 +431,7 @@ export default function ProfileScreen() {
               </View>
               {stats.linkedPairs > 0 ? (
                 <View style={styles.statsGrid}>
-                  {renderStatCard("Avg ΔAge", `${formatSigned(stats.averageDeltaPredictedAge)}y`, "clock", true)}
+                  {renderStatCard("Avg ΔAge", `${formatSigned(stats.averageDeltaPredictedAge)}Y`, "clock", true)}
                   {renderStatCard("Avg ΔWrk", formatSigned(stats.averageDeltaWrinkles), "activity")}
                 </View>
               ) : null}
@@ -552,11 +549,6 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0, 0, 0, 0.35)",
     justifyContent: "center",
     alignItems: "center",
-  },
-  avatarCaption: {
-    ...Typography.small,
-    marginTop: -Spacing.xs,
-    textAlign: "center",
   },
   avatarWrapper: {
     borderRadius: 60,

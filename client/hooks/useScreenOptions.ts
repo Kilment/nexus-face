@@ -21,7 +21,9 @@ export function useScreenOptions({
     // Only apply iOS blur when header is transparent over content.
     headerBlurEffect: transparent ? (isDark ? "dark" : "light") : undefined,
     headerTintColor: "#FFFFFF",
-    headerBackVisible: true,
+    // Custom `headerLeft` is the back control; do not supplement with the system back item
+    // (iOS would show an empty glass bubble when `headerBackVisible` is true but there is no back item).
+    headerBackVisible: false,
     headerShadowVisible: false,
     headerLargeTitle: false,
     headerLeft: (props) => React.createElement(PaddedHeaderBackButton, props),

@@ -13,12 +13,13 @@ export function PaddedHeaderBackButton(props: NativeStackHeaderBackProps) {
   const navigation = useNavigation();
   const { colors } = useTheme();
 
-  if (props.canGoBack !== true) {
+  // Prefer live navigation state: header `canGoBack` can lag or disagree with the stack at the root screen.
+  if (!navigation.canGoBack()) {
     return null;
   }
 
   return (
-    <View style={{ paddingLeft: Spacing.xl }}>
+    <View style={{ paddingLeft: Spacing.md, justifyContent: "center", minHeight: 44 }}>
       <HeaderBackButton
         tintColor={props.tintColor ?? colors.text}
         label={props.label}
