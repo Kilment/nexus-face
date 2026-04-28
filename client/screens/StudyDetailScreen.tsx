@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, StyleSheet, ScrollView, Alert, ActivityIndicator, Pressable } from "react-native";
+import { View, StyleSheet, ScrollView, Alert, ActivityIndicator, Pressable, Platform } from "react-native";
 import { useRoute, useNavigation, RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -66,21 +66,29 @@ export default function StudyDetailScreen() {
   const [activePhotoUri, setActivePhotoUri] = useState<string | null>(null);
 
   React.useLayoutEffect(() => {
-    navigation.setOptions({
-      headerLeft: () => (
-        <View style={{ paddingLeft: Spacing.xl }}>
-          <Pressable
-            onPress={handleHeaderBack}
-            hitSlop={12}
-            style={styles.headerBackButton}
-            accessibilityRole="button"
-            accessibilityLabel="Back"
-          >
-            <Feather name="arrow-left" size={24} color="#FFFFFF" />
-          </Pressable>
-        </View>
-      ),
-    });
+    if (Platform.OS === "ios") {
+      /** Native iOS back centers itself in the liquid-glass capsule; custom JSX gets shifted */
+      navigation.setOptions({
+        headerBackVisible: true,
+        headerLeft: undefined,
+      });
+    } else {
+      navigation.setOptions({
+        headerLeft: () => (
+          <View style={{ paddingLeft: Spacing.xl }}>
+            <Pressable
+              onPress={handleHeaderBack}
+              hitSlop={12}
+              style={styles.headerBackButton}
+              accessibilityRole="button"
+              accessibilityLabel="Back"
+            >
+              <Feather name="arrow-left" size={24} color="#FFFFFF" />
+            </Pressable>
+          </View>
+        ),
+      });
+    }
   }, [handleHeaderBack, navigation]);
 
   const { data, isLoading, refetch } = useQuery<{

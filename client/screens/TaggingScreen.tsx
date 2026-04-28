@@ -94,86 +94,57 @@ export default function TaggingScreen() {
   ]);
 
   React.useLayoutEffect(() => {
-    if (Platform.OS === "ios") {
-      navigation.setOptions({
-        unstable_headerLeftItems: () => [
-          {
-            type: "button",
-            label: "Cancel",
-            labelStyle: {
-              fontSize: 17,
-              fontWeight: "400",
-              color: theme.tabIconSelected,
-            },
-            onPress: () => navigation.goBack(),
-            accessibilityLabel: "Cancel",
-          },
-        ],
-        unstable_headerRightItems: () => [
-          {
-            type: "button",
-            label: "Save",
-            disabled: !isFormValid || isSaving,
-            labelStyle: {
-              fontSize: 17,
-              fontWeight: "600",
-              color: isFormValid && !isSaving ? theme.tabIconSelected : theme.textTertiary,
-            },
-            onPress: handleSave,
-            accessibilityLabel: "Save",
-          },
-        ],
-      });
-    } else {
-      navigation.setOptions({
-        headerLeft: () => (
-          <Pressable
-            onPress={() => navigation.goBack()}
-            hitSlop={12}
-            style={({ pressed }) => [
-              styles.headerBtn,
-              styles.headerBtnLeading,
-              { opacity: pressed ? 0.65 : 1 },
+    /**
+     * react-native-screens 4.16 doesn't yet wire up native UIBarButtonItem mapping for
+     * `unstable_headerLeftItems` / `unstable_headerRightItems`, so use plain JSX with
+     * fully symmetric padding (no wrapper View, no margin, no minWidth) — iOS 26
+     * liquid-glass capsule then sizes itself around shrink-wrapped content.
+     */
+    navigation.setOptions({
+      headerShown: true,
+      headerTitle: "Tag Photo",
+      headerLeft: () => (
+        <Pressable
+          onPress={() => navigation.goBack()}
+          hitSlop={12}
+          style={({ pressed }) => [
+            styles.headerNavBtn,
+            { opacity: pressed ? 0.6 : 1 },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="Cancel"
+        >
+          <Text style={[styles.headerNavLabel, { color: theme.tabIconSelected }]}>
+            Cancel
+          </Text>
+        </Pressable>
+      ),
+      headerRight: () => (
+        <Pressable
+          onPress={handleSave}
+          disabled={!isFormValid || isSaving}
+          hitSlop={12}
+          style={({ pressed }) => [
+            styles.headerNavBtn,
+            { opacity: !isFormValid || isSaving ? 1 : pressed ? 0.6 : 1 },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="Save"
+        >
+          <Text
+            style={[
+              styles.headerNavLabel,
+              styles.headerNavLabelEmphasis,
+              {
+                color: isFormValid && !isSaving ? theme.tabIconSelected : theme.textTertiary,
+              },
             ]}
-            accessibilityRole="button"
-            accessibilityLabel="Cancel"
           >
-            <View style={styles.headerBtnInner}>
-              <Text style={[styles.headerBtnLabelBody, { color: theme.tabIconSelected }]}>
-                Cancel
-              </Text>
-            </View>
-          </Pressable>
-        ),
-        headerRight: () => (
-          <Pressable
-            onPress={handleSave}
-            disabled={!isFormValid || isSaving}
-            hitSlop={12}
-            style={({ pressed }) => [
-              styles.headerBtn,
-              styles.headerBtnTrailing,
-              { opacity: !isFormValid || isSaving ? 1 : pressed ? 0.65 : 1 },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel="Save"
-          >
-            <View style={styles.headerBtnInner}>
-              <Text
-                style={[
-                  styles.headerBtnLabelEmphasis,
-                  {
-                    color: isFormValid && !isSaving ? theme.tabIconSelected : theme.textTertiary,
-                  },
-                ]}
-              >
-                Save
-              </Text>
-            </View>
-          </Pressable>
-        ),
-      });
-    }
+            Save
+          </Text>
+        </Pressable>
+      ),
+    });
   }, [navigation, handleSave, isFormValid, isSaving, theme]);
 
   return (
@@ -219,14 +190,14 @@ export default function TaggingScreen() {
               ]}
               value={initials}
               onChangeText={(text) => setInitials(text.slice(0, 3).toUpperCase())}
-              placeholder="2-3 characters"
+              placeholder="2-3 Characters"
               placeholderTextColor={theme.textTertiary}
               maxLength={3}
               autoCapitalize="characters"
             />
             {initials.length > 0 && initials.length < 2 && (
               <ThemedText style={[styles.hint, { color: theme.error }]}>
-                Minimum 2 characters
+                Minimum 2 Characters
               </ThemedText>
             )}
           </View>
@@ -400,39 +371,19 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   /**
-   * Native stack header slots can vertically stretch children. Fixed height +
-   * alignSelf: center keeps the label visually centered vs the liquid-glass capsule on iOS.
+   * Symmetric padding only — no margin, no minWidth, no wrapper Views. iOS 26
+   * liquid-glass capsule then wraps the shrink-wrapped Text with system insets
+   * and the label sits centered.
    */
-  headerBtn: {
-    flexDirection: "column",
-    justifyContent: "center",
-    alignItems: "center",
-    height: 44,
-    paddingHorizontal: 10,
-    borderRadius: BorderRadius.full,
-    alignSelf: "center",
+  headerNavBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 8,
   },
-  headerBtnInner: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  headerBtnLeading: {
-    marginLeft: Platform.OS === "ios" ? Spacing.sm : Spacing.md,
-  },
-  headerBtnTrailing: {
-    marginRight: Platform.OS === "ios" ? Spacing.sm : Spacing.md,
-  },
-  headerBtnLabelBody: {
+  headerNavLabel: {
     fontSize: 17,
     fontWeight: "400",
-    lineHeight: Platform.OS === "ios" ? 20 : 22,
-    textAlign: "center",
   },
-  headerBtnLabelEmphasis: {
-    fontSize: 17,
+  headerNavLabelEmphasis: {
     fontWeight: "600",
-    lineHeight: Platform.OS === "ios" ? 20 : 22,
-    textAlign: "center",
   },
 });

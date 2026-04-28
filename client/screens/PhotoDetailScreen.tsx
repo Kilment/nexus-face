@@ -89,41 +89,22 @@ export default function PhotoDetailScreen() {
   }, [deleteMutation]);
 
   React.useLayoutEffect(() => {
-    if (Platform.OS === "ios") {
-      galleryNav.setOptions({
-        unstable_headerRightItems: () => [
-          {
-            type: "button",
-            label: "",
-            icon: {
-              type: "sfSymbol",
-              name: "trash.fill",
-            },
-            tintColor: theme.error,
-            onPress: handleDelete,
-            accessibilityLabel: "Delete photo",
-          },
-        ],
-      });
-    } else {
-      galleryNav.setOptions({
-        headerRight: () => (
-          <Pressable
-            onPress={handleDelete}
-            hitSlop={12}
-            style={({ pressed }) => [
-              styles.headerTrashBtn,
-              styles.headerTrashTrailing,
-              { opacity: pressed ? 0.65 : 1 },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel="Delete photo"
-          >
-            <Feather name="trash-2" size={21} color={theme.error} />
-          </Pressable>
-        ),
-      });
-    }
+    galleryNav.setOptions({
+      headerRight: () => (
+        <Pressable
+          onPress={handleDelete}
+          hitSlop={12}
+          style={({ pressed }) => [
+            styles.headerTrashBtn,
+            { opacity: pressed ? 0.6 : 1 },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="Delete photo"
+        >
+          <Feather name="trash-2" size={21} color={theme.error} />
+        </Pressable>
+      ),
+    });
   }, [galleryNav, theme, handleDelete]);
 
   const handleLink = () => {
@@ -440,14 +421,8 @@ const styles = StyleSheet.create({
     ...Typography.body,
     flex: 1,
   },
+  /** Symmetric padding only; iOS 26 liquid-glass capsule sizes around the icon. */
   headerTrashBtn: {
-    height: 44,
-    width: 44,
-    justifyContent: "center",
-    alignItems: "center",
-    alignSelf: "center",
-  },
-  headerTrashTrailing: {
-    marginRight: Platform.OS === "ios" ? Spacing.sm : Spacing.md,
+    padding: 6,
   },
 });

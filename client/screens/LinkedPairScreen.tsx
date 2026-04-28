@@ -256,47 +256,22 @@ export default function LinkedPairScreen() {
   }, [unlinkMutation]);
 
   React.useLayoutEffect(() => {
-    if (Platform.OS === "ios") {
-      /**
-       * Use native UIBarButtonItem mapping (liquid-glass aligns label with system chrome).
-       * JSX in ScreenStackHeaderRightView cannot match UIKit intrinsic padding.
-       */
-      navigation.setOptions({
-        unstable_headerRightItems: () => [
-          {
-            type: "button",
-            label: "Unlink",
-            labelStyle: {
-              fontSize: 17,
-              fontWeight: "600",
-              color: theme.error,
-            },
-            onPress: handleUnlink,
-            accessibilityLabel: "Unlink paired photos",
-          },
-        ],
-      });
-    } else {
-      navigation.setOptions({
-        headerRight: () => (
-          <Pressable
-            onPress={handleUnlink}
-            hitSlop={12}
-            style={({ pressed }) => [
-              styles.headerNavBtn,
-              styles.headerNavBtnTrailing,
-              { opacity: pressed ? 0.65 : 1 },
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel="Unlink paired photos"
-          >
-            <View style={styles.headerNavInner}>
-              <Text style={[styles.headerNavLabelText, { color: theme.error }]}>Unlink</Text>
-            </View>
-          </Pressable>
-        ),
-      });
-    }
+    navigation.setOptions({
+      headerRight: () => (
+        <Pressable
+          onPress={handleUnlink}
+          hitSlop={12}
+          style={({ pressed }) => [
+            styles.headerNavBtn,
+            { opacity: pressed ? 0.6 : 1 },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="Unlink paired photos"
+        >
+          <Text style={[styles.headerNavLabelText, { color: theme.error }]}>Unlink</Text>
+        </Pressable>
+      ),
+    });
   }, [navigation, theme, handleUnlink]);
 
   const cycleViewMode = () => {
@@ -1008,26 +983,13 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: "rgba(128, 128, 128, 0.2)",
   },
+  /** Symmetric padding only; iOS 26 liquid-glass capsule sizes around shrink-wrapped Text. */
   headerNavBtn: {
-    flexDirection: "column",
-    justifyContent: "center",
-    alignItems: "center",
-    height: 44,
-    paddingHorizontal: 14,
-    borderRadius: BorderRadius.full,
-    alignSelf: "center",
-  },
-  headerNavBtnTrailing: {
-    marginRight: Platform.OS === "ios" ? Spacing.sm : Spacing.md,
-  },
-  headerNavInner: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
+    paddingVertical: 6,
+    paddingHorizontal: 8,
   },
   headerNavLabelText: {
     fontSize: 17,
     fontWeight: "600",
-    lineHeight: Platform.OS === "ios" ? 20 : 22,
   },
 });

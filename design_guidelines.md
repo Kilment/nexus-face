@@ -110,7 +110,7 @@
 - Main content (scrollable form):
   - Processed image preview (centered, medium size)
   - Form fields:
-    - "Initials" text input (2-3 characters)
+    - "Initials" text input (2-3 Characters)
     - "Before/After" segmented control
     - "Location Code" text input
 - Submit/Cancel buttons: In header
