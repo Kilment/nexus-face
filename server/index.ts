@@ -1,148 +1,251 @@
-import { randomBytes, randomUUID, scrypt, timingSafeEqual } from "node:crypto";
-import { promisify } from "node:util";
-
-import { eq } from "drizzle-orm";
 import express from "express";
-import { z } from "zod";
-
-import { users } from "@shared/schema";
-
-import { db } from "./db";
-
-const scryptAsync = promisify(scrypt);
-
-async function hashPassword(password: string): Promise<string> {
-  const salt = randomBytes(16).toString("hex");
-  const buf = (await scryptAsync(password, salt, 64)) as Buffer;
-  return `${salt}:${buf.toString("hex")}`;
-}
-
-async function verifyPassword(password: string, stored: string): Promise<boolean> {
-  const [salt, hash] = stored.split(":");
-  if (!salt || !hash) return false;
-  const buf = (await scryptAsync(password, salt, 64)) as Buffer;
-  const hashBuf = Buffer.from(hash, "hex");
-  if (buf.length !== hashBuf.length) return false;
-  return timingSafeEqual(buf, hashBuf);
-}
-
-function userResponse(row: typeof users.$inferSelect) {
-  return {
-    id: row.id,
-    email: row.email,
-    username: row.username,
-    profileImageUrl: row.profileImageUrl,
-  };
-}
-
-const signupSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(6),
-  username: z.string().min(1).max(255).optional(),
-});
-
-const loginSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(1),
-});
+import type { Request, Response, NextFunction } from "express";
+import { registerRoutes } from "./routes";
+import * as fs from "fs";
+import * as path from "path";
 
 const app = express();
-const port = Number(process.env.PORT ?? 5000);
+const log = console.log;
 
-app.use((req, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-User-Id");
-  if (req.method === "OPTIONS") {
-    res.sendStatus(204);
-    return;
+declare module "http" {
+  interface IncomingMessage {
+    rawBody: unknown;
   }
-  next();
-});
+}
 
-app.use(express.json({ limit: "10mb" }));
+function setupCors(app: express.Application) {
+  app.use((req, res, next) => {
+    const origins = new Set<string>();
 
-app.get("/health", (_req, res) => {
-  res.json({ ok: true });
-});
+    // Development origins
+    origins.add("http://127.0.0.1:8081");
+    origins.add("http://localhost:8081");
 
-app.post("/api/auth/signup", async (req, res) => {
-  const parsed = signupSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "Invalid signup payload" });
-    return;
-  }
-  const { email, password, username } = parsed.data;
-  const normalizedEmail = email.trim().toLowerCase();
-  const displayName =
-    username?.trim() || normalizedEmail.split("@")[0] || "user";
+    if (process.env.REPLIT_DEV_DOMAIN) {
+      origins.add(`https://${process.env.REPLIT_DEV_DOMAIN}`);
+    }
 
-  const existing = await db.query.users.findFirst({
-    where: eq(users.email, normalizedEmail),
+    if (process.env.REPLIT_DOMAINS) {
+      process.env.REPLIT_DOMAINS.split(",").forEach((d: string) => {
+        origins.add(`https://${d.trim()}`);
+      });
+    }
+
+    const origin = req.header("origin");
+
+    if (origin && origins.has(origin)) {
+      res.header("Access-Control-Allow-Origin", origin);
+      res.header("Vary", "Origin");
+      res.header(
+        "Access-Control-Allow-Methods",
+        "GET, POST, PUT, DELETE, OPTIONS",
+      );
+      const requestedHeaders = req.header("access-control-request-headers");
+      res.header(
+        "Access-Control-Allow-Headers",
+        requestedHeaders || "Content-Type, Authorization, X-User-Id",
+      );
+      res.header("Access-Control-Allow-Credentials", "true");
+    }
+
+    if (req.method === "OPTIONS") {
+      return res.sendStatus(200);
+    }
+
+    next();
   });
-  if (existing) {
-    res.status(409).json({ error: "An account with this email already exists" });
-    return;
-  }
+}
 
-  const id = randomUUID();
-  const passwordHash = await hashPassword(password);
+function setupBodyParsing(app: express.Application) {
+  app.use(
+    express.json({
+      limit: "50mb",
+      verify: (req, _res, buf) => {
+        req.rawBody = buf;
+      },
+    }),
+  );
 
-  const row = {
-    id,
-    email: normalizedEmail,
-    passwordHash,
-    username: displayName,
-    profileImageUrl: null as string | null,
-  };
+  app.use(express.urlencoded({ extended: false, limit: "50mb" }));
+}
 
-  await db.insert(users).values(row);
+function setupRequestLogging(app: express.Application) {
+  app.use((req, res, next) => {
+    const start = Date.now();
+    const path = req.path;
+    let capturedJsonResponse: Record<string, unknown> | undefined = undefined;
 
-  res.status(201).json({ user: userResponse(row) });
-});
+    const originalResJson = res.json;
+    res.json = function (bodyJson, ...args) {
+      capturedJsonResponse = bodyJson;
+      return originalResJson.apply(res, [bodyJson, ...args]);
+    };
 
-app.post("/api/auth/login", async (req, res) => {
-  const parsed = loginSchema.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: "Invalid login payload" });
-    return;
-  }
-  const { email, password } = parsed.data;
-  const normalizedEmail = email.trim().toLowerCase();
+    res.on("finish", () => {
+      if (!path.startsWith("/api")) return;
 
-  const row = await db.query.users.findFirst({
-    where: eq(users.email, normalizedEmail),
+      const duration = Date.now() - start;
+
+      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
+      if (capturedJsonResponse) {
+        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+      }
+
+      if (logLine.length > 80) {
+        logLine = logLine.slice(0, 79) + "…";
+      }
+
+      log(logLine);
+    });
+
+    next();
   });
-  if (!row || !(await verifyPassword(password, row.passwordHash))) {
-    res.status(401).json({ error: "Invalid email or password" });
-    return;
+}
+
+function getAppName(): string {
+  try {
+    const appJsonPath = path.resolve(process.cwd(), "app.json");
+    const appJsonContent = fs.readFileSync(appJsonPath, "utf-8");
+    const appJson = JSON.parse(appJsonContent);
+    return appJson.expo?.name || "App Landing Page";
+  } catch {
+    return "App Landing Page";
+  }
+}
+
+function serveExpoManifest(platform: string, res: Response) {
+  const manifestPath = path.resolve(
+    process.cwd(),
+    "static-build",
+    platform,
+    "manifest.json",
+  );
+
+  if (!fs.existsSync(manifestPath)) {
+    return res
+      .status(404)
+      .json({ error: `Manifest not found for platform: ${platform}` });
   }
 
-  res.json({ user: userResponse(row) });
-});
+  res.setHeader("expo-protocol-version", "1");
+  res.setHeader("expo-sfv-version", "0");
+  res.setHeader("content-type", "application/json");
 
-app.get("/api/auth/me", async (req, res) => {
-  const userId = req.header("X-User-Id")?.trim();
-  if (!userId) {
-    res.status(401).json({ error: "Not authenticated" });
-    return;
-  }
+  const manifest = fs.readFileSync(manifestPath, "utf-8");
+  res.send(manifest);
+}
 
-  const row = await db.query.users.findFirst({
-    where: eq(users.id, userId),
+function serveLandingPage({
+  req,
+  res,
+  landingPageTemplate,
+  appName,
+}: {
+  req: Request;
+  res: Response;
+  landingPageTemplate: string;
+  appName: string;
+}) {
+  const forwardedProto = req.header("x-forwarded-proto");
+  const protocol = forwardedProto || req.protocol || "https";
+  const forwardedHost = req.header("x-forwarded-host");
+  const host = forwardedHost || req.get("host");
+  const baseUrl = `${protocol}://${host}`;
+  const expsUrl = `${host}`;
+
+  log(`baseUrl`, baseUrl);
+  log(`expsUrl`, expsUrl);
+
+  const html = landingPageTemplate
+    .replace(/BASE_URL_PLACEHOLDER/g, baseUrl)
+    .replace(/EXPS_URL_PLACEHOLDER/g, expsUrl)
+    .replace(/APP_NAME_PLACEHOLDER/g, appName);
+
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.status(200).send(html);
+}
+
+function configureExpoAndLanding(app: express.Application) {
+  const templatePath = path.resolve(
+    process.cwd(),
+    "server",
+    "templates",
+    "landing-page.html",
+  );
+  const landingPageTemplate = fs.readFileSync(templatePath, "utf-8");
+  const appName = getAppName();
+
+  log("Serving static Expo files with dynamic manifest routing");
+
+  app.use((req: Request, res: Response, next: NextFunction) => {
+    if (req.path.startsWith("/api")) {
+      return next();
+    }
+
+    if (req.path !== "/" && req.path !== "/manifest") {
+      return next();
+    }
+
+    const platform = req.header("expo-platform");
+    if (platform && (platform === "ios" || platform === "android")) {
+      return serveExpoManifest(platform, res);
+    }
+
+    if (req.path === "/") {
+      return serveLandingPage({
+        req,
+        res,
+        landingPageTemplate,
+        appName,
+      });
+    }
+
+    next();
   });
-  if (!row) {
-    res.status(401).json({ error: "Not authenticated" });
-    return;
-  }
 
-  res.json({ user: userResponse(row) });
-});
+  app.use("/assets", express.static(path.resolve(process.cwd(), "assets")));
+  app.use(express.static(path.resolve(process.cwd(), "static-build")));
 
-app.post("/api/auth/logout", (_req, res) => {
-  res.json({ ok: true });
-});
+  log("Expo routing: Checking expo-platform header on / and /manifest");
+}
 
-app.listen(port, "0.0.0.0", () => {
-  console.log(`API listening on http://0.0.0.0:${port}`);
-});
+function setupErrorHandler(app: express.Application) {
+  app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    const error = err as {
+      status?: number;
+      statusCode?: number;
+      message?: string;
+    };
+
+    const status = error.status || error.statusCode || 500;
+    const message = error.message || "Internal Server Error";
+
+    res.status(status).json({ message });
+
+    throw err;
+  });
+}
+
+(async () => {
+  setupCors(app);
+  setupBodyParsing(app);
+  setupRequestLogging(app);
+
+  configureExpoAndLanding(app);
+
+  const server = await registerRoutes(app);
+
+  setupErrorHandler(app);
+
+  const port = parseInt(process.env.PORT || "5000", 10);
+  server.listen(
+    {
+      port,
+      host: "0.0.0.0",
+      reusePort: true,
+    },
+    () => {
+      log(`express server serving on port ${port}`);
+    },
+  );
+})();
