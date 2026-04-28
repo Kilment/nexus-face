@@ -26,10 +26,22 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
   return {};
 }
 
-async function throwIfResNotOk(res: Response) {
+export async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
+    try {
+      const j = JSON.parse(text) as { error?: string; hint?: string; message?: string };
+      const headline = j.error ?? j.message ?? `HTTP ${res.status}`;
+      if (j.hint) {
+        throw new Error(`${headline} — ${j.hint}`);
+      }
+      throw new Error(headline);
+    } catch (e) {
+      if (e instanceof SyntaxError) {
+        throw new Error(`${res.status}: ${text}`);
+      }
+      throw e;
+    }
   }
 }
 

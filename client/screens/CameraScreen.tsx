@@ -1,12 +1,21 @@
 import React, { useState, useRef, useEffect } from "react";
-import { View, StyleSheet, Pressable, Platform, Alert, Dimensions, FlatList } from "react-native";
+import {
+  View,
+  StyleSheet,
+  Pressable,
+  Platform,
+  Alert,
+  Dimensions,
+  FlatList,
+  Modal,
+  ActivityIndicator,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { BlurView } from "expo-blur";
 import { CameraView, CameraType, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
-import * as FileSystem from "expo-file-system/legacy";
 import { Feather } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import Animated, {
@@ -28,7 +37,7 @@ import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { hapticFeedback } from "@/lib/haptics";
-import { apiRequest, queryClient } from "@/lib/query-client";
+import { apiRequest, authenticatedFetch, queryClient, throwIfResNotOk } from "@/lib/query-client";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -55,6 +64,8 @@ export default function CameraScreen() {
   const [isCapturing, setIsCapturing] = useState(false);
   const [batchImages, setBatchImages] = useState<SelectedImage[]>([]);
   const [showBatchPanel, setShowBatchPanel] = useState(false);
+  const [zipImportBusy, setZipImportBusy] = useState(false);
+  const [zipImportMessage, setZipImportMessage] = useState("");
   const cameraRef = useRef<CameraView>(null);
   const [permission, requestPermission] = useCameraPermissions();
 
@@ -175,20 +186,68 @@ export default function CameraScreen() {
   };
 
   const importZipBatch = async () => {
+    if (zipImportBusy) return;
     hapticFeedback.light();
     try {
+      setZipImportBusy(true);
+      setZipImportMessage(
+        Platform.OS === "web" ? "Select a .zip file…" : "Opening file picker…",
+      );
+
       const result = await DocumentPicker.getDocumentAsync({
         type: "application/zip",
-        copyToCacheDirectory: true,
+        ...(Platform.OS === "web"
+          ? {
+              /** Must stay false: `base64: true` makes Expo read the whole zip as a Data URL in the picker, then we read again — huge zips OOM / crash the tab. */
+              base64: false,
+            }
+          : { copyToCacheDirectory: true }),
       });
 
-      if (result.canceled || !result.assets[0]?.uri) return;
+      if (result.canceled) {
+        return;
+      }
 
-      const zipBase64 = await FileSystem.readAsStringAsync(result.assets[0].uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
+      const asset = result.assets?.[0];
+      if (!asset) {
+        Alert.alert(
+          "Import Failed",
+          "No file was returned. Try the zip again, or re-export it so it includes manifest.json at the root.",
+        );
+        return;
+      }
 
-      const response = await apiRequest("POST", "/api/photos/import-zip", { zipBase64 });
+      /** Multipart upload avoids reading the whole zip as base64 in JS (OOM / tab crash on large archives). */
+      setZipImportMessage(
+        Platform.OS === "web"
+          ? "Uploading zip — large batches can take several minutes…"
+          : "Uploading and processing photos…",
+      );
+
+      /** Web: raw `application/zip` body — Expo web FormData/multipart often fails to populate multer's `req.file`. Native: multipart field `zip`. */
+      let response: Awaited<ReturnType<typeof authenticatedFetch>>;
+      if (Platform.OS === "web") {
+        const body: Blob = asset.file ?? (await fetch(asset.uri).then((r) => r.blob()));
+        response = await authenticatedFetch("/api/photos/import-zip", {
+          method: "POST",
+          headers: { "Content-Type": "application/zip" },
+          body,
+        });
+      } else {
+        const formData = new FormData();
+        formData.append("zip", {
+          uri: asset.uri,
+          name: asset.name ?? "import.zip",
+          type: "application/zip",
+        } as unknown as Blob);
+        response = await authenticatedFetch("/api/photos/import-zip", {
+          method: "POST",
+          body: formData,
+        });
+      }
+      await throwIfResNotOk(response);
+      setZipImportMessage("Saving to gallery…");
+
       const data = (await response.json()) as {
         importedCount: number;
         skippedCount: number;
@@ -197,25 +256,58 @@ export default function CameraScreen() {
 
       queryClient.invalidateQueries({ queryKey: ["/api/photos"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
-      hapticFeedback.success();
 
-      if (data.skippedCount > 0) {
+      const skippedLines =
+        data.skipped?.slice(0, 10).map((s) => `${s.fileName}: ${s.reason}`).join("\n") ?? "";
+
+      if (data.importedCount === 0) {
+        hapticFeedback.warning();
         Alert.alert(
-          "Import Completed With Skips",
-          `Imported ${data.importedCount} Photos. Skipped ${data.skippedCount} Photos.`,
+          data.skippedCount > 0 ? "Nothing imported" : "Nothing to import",
+          data.skippedCount > 0
+            ? `All ${data.skippedCount} manifest entries were skipped.\n\n${skippedLines}${data.skippedCount > 10 ? "\n…" : ""}\n\nCheck that paths in the manifest match files in the zip (including folders).`
+            : "The manifest did not list any photos.",
         );
       } else {
-        Alert.alert("Import Completed", `Imported ${data.importedCount} Photos.`);
+        hapticFeedback.success();
+        if (data.skippedCount > 0) {
+          Alert.alert(
+            "Import Completed With Skips",
+            `Imported ${data.importedCount} photos. Skipped ${data.skippedCount}.\n\n${skippedLines}${data.skippedCount > 10 ? "\n…" : ""}`,
+          );
+        } else {
+          Alert.alert("Import Completed", `Imported ${data.importedCount} photos.`);
+        }
       }
     } catch (error) {
-      console.error("Error Importing Zip Batch:", error);
+      console.error("[ZipImport]", error);
       hapticFeedback.error();
+      const msg =
+        error instanceof Error ? error.message.slice(0, 500) : "Unknown error";
       Alert.alert(
         "Import Failed",
-        "Unable To Import Zip Batch. Check tags.json And File Names, Then Try Again.",
+        `${msg}\n\nEnsure manifest.json Is At Zip Root And Matches Format (cohorts + relativePath Or Flat photos + fileName).`,
       );
+    } finally {
+      /** Next tick so React can paint `busy` before we clear; avoids batching true+false into one frame. */
+      setTimeout(() => {
+        setZipImportBusy(false);
+        setZipImportMessage("");
+      }, 0);
     }
   };
+
+  const zipImportModal = (
+    <Modal visible={zipImportBusy} transparent animationType="fade" statusBarTranslucent>
+      <View style={styles.zipImportOverlay} accessibilityLiveRegion="polite">
+        <ActivityIndicator size="large" color={theme.tabIconSelected} />
+        <ThemedText style={styles.zipImportOverlayTitle}>Importing zip</ThemedText>
+        <ThemedText style={[styles.zipImportOverlayHint, { color: theme.textSecondary }]}>
+          {zipImportMessage || "Working…"}
+        </ThemedText>
+      </View>
+    </Modal>
+  );
 
   const processBatch = () => {
     if (batchImages.length === 0) return;
@@ -256,90 +348,103 @@ export default function CameraScreen() {
 
   if (!permission.granted) {
     return (
-      <ThemedView style={styles.container}>
-        <View
-          style={[
-            styles.permissionContainer,
-            {
-              paddingTop: insets.top + Spacing.xl,
-              paddingBottom: tabBarHeight + insets.bottom + Spacing.xl,
-            },
-          ]}
-        >
-          <Feather name="camera-off" size={64} color={theme.textSecondary} />
-          <ThemedText style={styles.permissionTitle}>Camera Access Required</ThemedText>
-          <ThemedText style={[styles.permissionText, { color: theme.textSecondary }]}>
-            Application needs camera access to capture and process photos.
-          </ThemedText>
-          <GlassButton
-            title="Enable Camera"
-            icon="camera"
-            onPress={requestPermission}
-            style={styles.glassButtonStyle}
-          />
-          <GlassButton
-            title="Upload Photos"
-            icon="upload"
-            variant="secondary"
-            onPress={pickSingleImage}
-            style={styles.glassButtonStyle}
-          />
-          <GlassButton
-            title="Import Zip Batch"
-            icon="folder"
-            variant="secondary"
-            onPress={importZipBatch}
-            style={styles.glassButtonStyle}
-          />
-        </View>
-      </ThemedView>
+      <>
+        <ThemedView style={styles.container}>
+          <View
+            style={[
+              styles.permissionContainer,
+              {
+                paddingTop: insets.top + Spacing.xl,
+                paddingBottom: tabBarHeight + insets.bottom + Spacing.xl,
+              },
+            ]}
+          >
+            <Feather name="camera-off" size={64} color={theme.textSecondary} />
+            <ThemedText style={styles.permissionTitle}>Camera Access Required</ThemedText>
+            <ThemedText style={[styles.permissionText, { color: theme.textSecondary }]}>
+              Application needs camera access to capture and process photos.
+            </ThemedText>
+            <GlassButton
+              title="Enable Camera"
+              icon="camera"
+              onPress={requestPermission}
+              style={styles.glassButtonStyle}
+            />
+            <GlassButton
+              title="Upload Photos"
+              icon="upload"
+              variant="secondary"
+              onPress={pickSingleImage}
+              style={styles.glassButtonStyle}
+            />
+            <GlassButton
+              title="Import Zip Batch"
+              icon="folder"
+              variant="secondary"
+              onPress={importZipBatch}
+              loading={zipImportBusy}
+              disabled={zipImportBusy}
+              style={styles.glassButtonStyle}
+            />
+          </View>
+        </ThemedView>
+        {zipImportModal}
+      </>
     );
   }
 
   if (Platform.OS === "web") {
     return (
-      <ThemedView style={styles.container}>
-        <View
-          style={[
-            styles.permissionContainer,
-            {
-              paddingTop: insets.top + Spacing.xl,
-              paddingBottom: tabBarHeight + insets.bottom + Spacing.xl,
-            },
-          ]}
-        >
-          <Feather name="smartphone" size={64} color={theme.textSecondary} />
-          <ThemedText style={styles.permissionTitle}>Run in Expo Go</ThemedText>
-          <ThemedText style={[styles.permissionText, { color: theme.textSecondary }]}>
-            Camera works best in the Expo Go app. Scan the QR code to open on your device.
-          </ThemedText>
-          <GlassButton
-            title="Upload Single Photo"
-            icon="image"
-            onPress={pickSingleImage}
-            style={styles.glassButtonStyle}
-          />
-          <GlassButton
-            title="Batch Upload"
-            icon="layers"
-            variant="secondary"
-            onPress={pickImages}
-            style={styles.glassButtonStyle}
-          />
-          <GlassButton
-            title="Import Zip Batch"
-            icon="folder"
-            variant="secondary"
-            onPress={importZipBatch}
-            style={styles.glassButtonStyle}
-          />
-        </View>
-      </ThemedView>
+      <>
+        <ThemedView style={styles.container}>
+          <View
+            style={[
+              styles.permissionContainer,
+              {
+                paddingTop: insets.top + Spacing.xl,
+                paddingBottom: tabBarHeight + insets.bottom + Spacing.xl,
+              },
+            ]}
+          >
+            <Feather name="smartphone" size={64} color={theme.textSecondary} />
+            <ThemedText style={styles.permissionTitle}>Run in Expo Go</ThemedText>
+            <ThemedText style={[styles.permissionText, { color: theme.textSecondary }]}>
+              Camera works best in the Expo Go app. Scan the QR code to open on your device.
+            </ThemedText>
+            <GlassButton
+              title="Upload Single Photo"
+              icon="image"
+              onPress={pickSingleImage}
+              disabled={zipImportBusy}
+              style={styles.glassButtonStyle}
+            />
+            <GlassButton
+              title="Batch Upload"
+              icon="layers"
+              variant="secondary"
+              onPress={pickImages}
+              disabled={zipImportBusy}
+              style={styles.glassButtonStyle}
+            />
+            <GlassButton
+              title="Import Zip Batch"
+              icon="folder"
+              variant="secondary"
+              onPress={importZipBatch}
+              loading={zipImportBusy}
+              disabled={zipImportBusy}
+              style={styles.glassButtonStyle}
+            />
+          </View>
+        </ThemedView>
+        {zipImportModal}
+      </>
     );
   }
 
   return (
-    <View style={styles.container}>
+    <>
+      <View style={styles.container}>
       <CameraView
         ref={cameraRef}
         style={styles.camera}
@@ -515,9 +620,13 @@ export default function CameraScreen() {
           size={52}
           onPress={importZipBatch}
           isDark={isDark}
+          disabled={zipImportBusy}
+          accessibilityLabel="Import zip batch"
         />
       </View>
-    </View>
+      </View>
+      {zipImportModal}
+    </>
   );
 }
 
@@ -528,9 +637,20 @@ interface GlassIconButtonProps {
   size?: number;
   active?: boolean;
   activeColor?: string;
+  disabled?: boolean;
+  accessibilityLabel?: string;
 }
 
-function GlassIconButton({ icon, onPress, isDark, size = 50, active, activeColor }: GlassIconButtonProps) {
+function GlassIconButton({
+  icon,
+  onPress,
+  isDark,
+  size = 50,
+  active,
+  activeColor,
+  disabled = false,
+  accessibilityLabel,
+}: GlassIconButtonProps) {
   const scale = useSharedValue(1);
 
   const animatedStyle = useAnimatedStyle(() => ({
@@ -538,7 +658,9 @@ function GlassIconButton({ icon, onPress, isDark, size = 50, active, activeColor
   }));
 
   const handlePressIn = () => {
-    scale.value = withSpring(0.9);
+    if (!disabled) {
+      scale.value = withSpring(0.9);
+    }
   };
 
   const handlePressOut = () => {
@@ -547,10 +669,16 @@ function GlassIconButton({ icon, onPress, isDark, size = 50, active, activeColor
 
   return (
     <AnimatedPressable
-      onPress={onPress}
+      onPress={() => {
+        if (!disabled) onPress();
+      }}
       onPressIn={handlePressIn}
       onPressOut={handlePressOut}
-      style={animatedStyle}
+      disabled={disabled}
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="button"
+      accessibilityState={{ disabled }}
+      style={[animatedStyle, disabled && { opacity: 0.45 }]}
     >
       <View style={[styles.glassIconButton, { width: size, height: size, borderRadius: size / 2 }]}>
         {Platform.OS === "ios" ? (
@@ -770,5 +898,25 @@ const styles = StyleSheet.create({
   glassButtonStyle: {
     marginTop: Spacing.sm,
     minWidth: 220,
+  },
+  zipImportOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.78)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: Spacing.xl,
+    gap: Spacing.md,
+  },
+  zipImportOverlayTitle: {
+    color: "#FFFFFF",
+    fontSize: 20,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  zipImportOverlayHint: {
+    fontSize: 15,
+    textAlign: "center",
+    lineHeight: 22,
+    maxWidth: 320,
   },
 });

@@ -59,14 +59,14 @@ function setupCors(app: express.Application) {
 function setupBodyParsing(app: express.Application) {
   app.use(
     express.json({
-      limit: "50mb",
+      limit: "1gb",
       verify: (req, _res, buf) => {
         req.rawBody = buf;
       },
     }),
   );
 
-  app.use(express.urlencoded({ extended: false, limit: "50mb" }));
+  app.use(express.urlencoded({ extended: false, limit: "1gb" }));
 }
 
 function setupRequestLogging(app: express.Application) {
@@ -211,18 +211,41 @@ function configureExpoAndLanding(app: express.Application) {
 
 function setupErrorHandler(app: express.Application) {
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
-    const error = err as {
+    if (res.headersSent) {
+      console.error("Error after headers sent:", err);
+      return;
+    }
+
+    const e = err as {
       status?: number;
       statusCode?: number;
       message?: string;
+      type?: string;
+      code?: string;
     };
 
-    const status = error.status || error.statusCode || 500;
-    const message = error.message || "Internal Server Error";
+    /** body-parser / raw-body when the client or proxy closes the socket mid-upload (large zips, timeouts). */
+    if (e.type === "request.aborted" || e.code === "ECONNABORTED") {
+      return res.status(408).json({
+        error: "Upload interrupted",
+        hint:
+          "The connection closed before the zip finished uploading. Try a stable network, a smaller archive, or split the import into multiple zips.",
+      });
+    }
 
-    res.status(status).json({ message });
+    if (e.type === "entity.too.large") {
+      return res.status(413).json({
+        error: "Request too large",
+        hint: "Zip exceeds the server size limit. Split into smaller archives or raise the limit.",
+      });
+    }
 
-    throw err;
+    const status = e.status || e.statusCode || 500;
+    const message = e.message || "Internal Server Error";
+    if (status >= 500) {
+      console.error("Server error:", err);
+    }
+    res.status(status).json({ error: message });
   });
 }
 

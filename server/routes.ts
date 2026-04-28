@@ -1,10 +1,11 @@
-import type { Express, Request, Response, NextFunction } from "express";
+import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { createServer, type Server } from "node:http";
 import session from "express-session";
+import multer from "multer";
 import crypto from "crypto";
 import { storage } from "./storage";
-import { processImageForFaceAnonymization, getDeIdPipelineInfo } from "./face-processor";
-import { processImageForFaceAnonymizationOpenAI } from "./openai";
+import { getDeIdPipelineInfo } from "./face-processor";
+import { deIdentifyWithFallback } from "./deid";
 import { standardizePhoto } from "./photo-standardizer";
 import { insertPhotoSchema } from "@shared/schema";
 import { detectDemographics } from "./rekognition";
@@ -17,7 +18,51 @@ import {
 } from "./cohort-stats";
 import { pairMetricsSchema } from "@shared/cohort-metrics";
 import { z } from "zod";
-import JSZip from "jszip";
+import { importZipBufferForUser, ZipImportValidationError } from "./zipImportService";
+import { runCohortAnalysisForLinkedPair } from "./cohort-linked-pair";
+
+const ZIP_UPLOAD_MAX_BYTES = 1024 * 1024 * 1024;
+
+const importZipUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: ZIP_UPLOAD_MAX_BYTES },
+}).single("zip");
+
+function importZipUploadSafe(req: Request, res: Response, next: NextFunction) {
+  importZipUpload(req, res, (err: unknown) => {
+    if (err instanceof multer.MulterError) {
+      if (err.code === "LIMIT_FILE_SIZE") {
+        return res.status(413).json({ error: "Zip file exceeds 1 GB limit" });
+      }
+      return res.status(400).json({ error: err.message });
+    }
+    if (err) {
+      return res.status(400).json({ error: "Invalid zip upload" });
+    }
+    next();
+  });
+}
+
+/** Multipart (native) or raw zip bytes (web); JSON-only hits `next()` so `express.json` body stays. */
+function importZipBodyParser(req: Request, res: Response, next: NextFunction) {
+  const ct = (req.headers["content-type"] || "").toLowerCase();
+  if (ct.startsWith("multipart/form-data")) {
+    return importZipUploadSafe(req, res, next);
+  }
+  if (
+    ct.startsWith("application/zip") ||
+    (ct.startsWith("application/octet-stream") && !ct.includes("json"))
+  ) {
+    /** Default `express.raw()` only accepts `application/octet-stream`, so `application/zip` was skipped and the body was never read. */
+    return express.raw({
+      limit: "1gb",
+      type: ["application/zip", "application/octet-stream"],
+    })(req, res, next);
+  }
+  next();
+}
+
+type RequestWithZipFile = Request & { file?: Express.Multer.File };
 
 function hashPassword(password: string): string {
   const salt = crypto.randomBytes(16).toString("hex");
@@ -144,25 +189,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return getStudyAnalysisStatus(studyId);
   }
 
-  async function deIdentifyWithFallback(
-    imageBase64: string,
-  ): Promise<{
-    processedImageBase64: string;
-    method: "FaceApi" | "OpenAIFallback";
-    fallbackReason?: string;
-  }> {
-    try {
-      const processedImageBase64 = await processImageForFaceAnonymization(imageBase64);
-      return { processedImageBase64, method: "FaceApi" };
-    } catch (primaryError) {
-      const fallbackReason =
-        primaryError instanceof Error ? primaryError.message : "Primary de-identification failed";
-      console.warn(`Primary de-identification failed. Using OpenAI fallback. Reason: ${fallbackReason}`);
-      const processedImageBase64 = await processImageForFaceAnonymizationOpenAI(imageBase64);
-      return { processedImageBase64, method: "OpenAIFallback", fallbackReason };
-    }
-  }
-
   function logDeIdMethod(context: string, method: "FaceApi" | "OpenAIFallback", extra?: string) {
     deIdMetrics.total += 1;
     if (method === "FaceApi") {
@@ -178,49 +204,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     console.log(
       `[DEID] ${context} | Method=${method} | Total=${deIdMetrics.total} | FaceApi=${deIdMetrics.faceApi} | OpenAIFallback=${deIdMetrics.openAiFallback} | FallbackRate=${fallbackRate}%${suffix}`,
     );
-  }
-
-  async function runCohortAnalysisForLinkedPair(
-    userId: string,
-    first: Awaited<ReturnType<typeof storage.getPhoto>>,
-    second: Awaited<ReturnType<typeof storage.getPhoto>>,
-  ): Promise<string | null> {
-    if (!first || !second) return null;
-    if (!first.linkedPhotoId || !second.linkedPhotoId) return null;
-
-    const beforePhoto = first.beforeAfter === "before" ? first : second;
-    const afterPhoto = first.beforeAfter === "after" ? first : second;
-    if (beforePhoto.beforeAfter !== "before" || afterPhoto.beforeAfter !== "after") return null;
-
-    const existing = await storage.getPairAnalysisForAfterPhoto(userId, afterPhoto.id);
-    const existingStudyForPair = await storage.findStudyForPhotoPair(userId, beforePhoto.id, afterPhoto.id);
-    const studyId = existing?.studyId ?? existingStudyForPair?.id ??
-      (
-        await storage.createStudy({
-          userId,
-          title: `${beforePhoto.initials} Cohort Study`,
-        })
-      ).id;
-
-    await storage.replaceStudyMembers(studyId, [
-      {
-        photoId: beforePhoto.id,
-        role: "before",
-        weeksAfter: null,
-        interventionLabel: null,
-        sortOrder: 0,
-      },
-      {
-        photoId: afterPhoto.id,
-        role: "after",
-        weeksAfter: afterPhoto.weeksAfter ?? null,
-        interventionLabel: null,
-        sortOrder: 1,
-      },
-    ]);
-
-    await triggerStudyAnalysis(studyId, userId);
-    return studyId;
   }
 
   app.use(
@@ -534,7 +517,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await storage.updatePhotoLink(photo.id, targetPhoto.id);
         await storage.updatePhotoLink(targetPhoto.id, photo.id);
 
-        await runCohortAnalysisForLinkedPair(req.session.userId!, photo, targetPhoto);
+        await runCohortAnalysisForLinkedPair(
+          req.session.userId!,
+          photo,
+          targetPhoto,
+          triggerStudyAnalysis,
+        );
 
         // Return updated photo with link info
         const updatedPhoto = await storage.getPhoto(photo.id);
@@ -548,124 +536,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/photos/import-zip", requireAuth, async (req, res) => {
+  app.post("/api/photos/import-zip", requireAuth, importZipBodyParser, async (req, res) => {
     try {
-      const body = z
-        .object({
-          zipBase64: z.string().min(1),
-        })
-        .safeParse(req.body);
+      const reqWithFile = req as RequestWithZipFile;
+      let zipBuffer: Buffer | undefined;
+      if (Buffer.isBuffer(req.body) && req.body.length > 0) {
+        zipBuffer = req.body;
+      } else if (reqWithFile.file?.buffer && reqWithFile.file.buffer.length > 0) {
+        zipBuffer = reqWithFile.file.buffer;
+      } else {
+        const body = z
+          .object({
+            zipBase64: z.string().min(1, "zipBase64 is required and must be non-empty base64"),
+          })
+          .safeParse(req.body);
 
-      if (!body.success) {
-        return res.status(400).json({ error: "Invalid Request Body" });
-      }
-
-      const zip = await JSZip.loadAsync(Buffer.from(body.data.zipBase64, "base64"));
-      const manifestFile =
-        zip.file("tags.json") ??
-        zip.file("manifest.json") ??
-        zip.file("Tags.json") ??
-        zip.file("Manifest.json");
-
-      if (!manifestFile) {
-        return res.status(400).json({
-          error: "Missing Manifest File. Include tags.json In The Zip Root.",
-        });
-      }
-
-      const manifestRaw = await manifestFile.async("string");
-      const manifestParsed = z
-        .object({
-          photos: z.array(
-            z.object({
-              fileName: z.string().min(1),
-              initials: z.string().min(1).max(3),
-              beforeAfter: z.enum(["before", "after"]),
-              locationCode: z.string().min(1).max(50),
-              weeksAfter: z.number().int().nullable().optional(),
-            }),
-          ),
-        })
-        .safeParse(JSON.parse(manifestRaw));
-
-      if (!manifestParsed.success) {
-        return res.status(400).json({
-          error: "Invalid Manifest Format",
-          details: manifestParsed.error.flatten(),
-        });
-      }
-
-      const imported: string[] = [];
-      const skipped: Array<{ fileName: string; reason: string }> = [];
-
-      for (const item of manifestParsed.data.photos) {
-        const imageFile =
-          zip.file(item.fileName) ??
-          zip.file(item.fileName.replace(/^\.\//, "")) ??
-          zip.file(`images/${item.fileName}`);
-
-        if (!imageFile) {
-          skipped.push({ fileName: item.fileName, reason: "File Not Found In Zip" });
-          continue;
+        if (!body.success) {
+          return res.status(400).json({
+            error: "Invalid Request Body",
+            details: body.error.flatten(),
+            hint:
+              "Send raw zip (Content-Type: application/zip), multipart field \"zip\", or JSON { zipBase64 }.",
+          });
         }
+        zipBuffer = Buffer.from(body.data.zipBase64, "base64");
+      }
 
-        const ext = item.fileName.toLowerCase().split(".").pop() ?? "";
-        if (!["png", "jpg", "jpeg", "webp"].includes(ext)) {
-          skipped.push({ fileName: item.fileName, reason: "Unsupported Image Format" });
-          continue;
-        }
+      if (!zipBuffer?.length) {
+        return res.status(400).json({ error: "Empty zip file" });
+      }
 
-        const rawImageBase64 = await imageFile.async("base64");
-        const deidResult = await deIdentifyWithFallback(rawImageBase64);
-        const processedImageBase64 = deidResult.processedImageBase64;
-        logDeIdMethod(
-          `ZipImport:${item.fileName}`,
-          deidResult.method,
-          deidResult.fallbackReason ? `FallbackReason=${deidResult.fallbackReason}` : undefined,
-        );
-        const standardizedImageBase64 = await standardizePhoto(processedImageBase64);
-        const demographics = await detectDemographics(standardizedImageBase64);
-
-        const photo = await storage.createPhoto({
+      try {
+        const result = await importZipBufferForUser({
           userId: req.session.userId!,
-          processedImageUrl: `data:image/png;base64,${processedImageBase64}`,
-          processedImageBase64,
-          standardizedImageBase64,
-          initials: item.initials.toUpperCase(),
-          beforeAfter: item.beforeAfter,
-          locationCode: item.locationCode,
-          gender: demographics?.gender,
-          ageRange: demographics?.ageRange,
-          ethnicity: demographics?.ethnicity,
-          weeksAfter: item.beforeAfter === "after" ? item.weeksAfter ?? null : null,
+          zipBuffer,
+          logDeIdMethod,
+          scheduleStudyAnalysis: triggerStudyAnalysis,
         });
-
-        const linkablePhotos = await storage.getLinkablePhotos(
-          req.session.userId!,
-          photo.initials,
-          photo.beforeAfter,
-          photo.id,
-        );
-
-        if (linkablePhotos.length > 0) {
-          const targetPhoto = linkablePhotos.sort(
-            (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-          )[0];
-          if (targetPhoto) {
-            await storage.updatePhotoLink(photo.id, targetPhoto.id);
-            await storage.updatePhotoLink(targetPhoto.id, photo.id);
-            await runCohortAnalysisForLinkedPair(req.session.userId!, photo, targetPhoto);
-          }
+        return res.status(201).json({
+          importedCount: result.importedCount,
+          skippedCount: result.skippedCount,
+          skipped: result.skipped,
+        });
+      } catch (e) {
+        if (e instanceof ZipImportValidationError) {
+          return res.status(e.statusCode).json({
+            error: e.message,
+            ...e.body,
+          });
         }
-
-        imported.push(photo.id);
+        throw e;
       }
-
-      return res.status(201).json({
-        importedCount: imported.length,
-        skippedCount: skipped.length,
-        skipped,
-      });
     } catch (error) {
       console.error("Error Importing Zip Photos:", error);
       return res.status(500).json({ error: "Failed To Import Zip Photos" });
@@ -710,7 +631,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(404).json({ error: "Linked photo not found" });
         }
         await storage.updatePhotoLink(linkedPhotoId, photo.id);
-        await runCohortAnalysisForLinkedPair(req.session.userId!, photo, linkedPhoto);
+        await runCohortAnalysisForLinkedPair(
+          req.session.userId!,
+          photo,
+          linkedPhoto,
+          triggerStudyAnalysis,
+        );
       }
 
       res.json({ photo: updatedPhoto });
@@ -1273,5 +1199,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   const httpServer = createServer(app);
+  /** Default Node request timeout (~5 min) can abort large zip uploads mid-stream → raw-body "request aborted". */
+  httpServer.requestTimeout = 0;
   return httpServer;
 }

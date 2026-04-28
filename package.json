@@ -11,6 +11,7 @@
     "server:build": "esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=server_dist",
     "server:prod": "NODE_ENV=production node server_dist/index.js",
     "db:push": "drizzle-kit push",
+    "import:zip": "tsx scripts/import-zip-for-user.ts",
     "lint": "npx expo lint",
     "lint:fix": "npx expo lint --fix",
     "check:types": "tsc --noEmit",
@@ -56,6 +57,7 @@
     "express-session": "^1.18.2",
     "http-proxy-middleware": "^3.0.5",
     "jszip": "^3.10.1",
+    "multer": "^2.1.1",
     "openai": "^6.14.0",
     "pg": "^8.16.3",
     "react": "19.1.0",
@@ -76,6 +78,7 @@
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
+    "@types/multer": "^2.1.0",
     "@types/node": "24.10.0",
     "@types/react": "~19.1.0",
     "babel-plugin-module-resolver": "^5.0.2",
