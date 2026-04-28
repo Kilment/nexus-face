@@ -11,6 +11,11 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.nexus.app",
+      "icon": {
+        "light": "./assets/images/icon.png",
+        "dark": "./assets/images/icon.png",
+        "tinted": "./assets/images/icon.png"
+      },
       "infoPlist": {
         "NSCameraUsageDescription": "Nexus needs camera access to capture photos for face processing.",
         "NSPhotoLibraryUsageDescription": "Nexus needs photo library access to upload images for processing."
@@ -38,11 +43,14 @@
         "expo-splash-screen",
         {
           "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
+          "imageWidth": 220,
           "resizeMode": "contain",
-          "backgroundColor": "#0A1628",
+          "backgroundColor": "#FFFFFF",
           "dark": {
-            "backgroundColor": "#0A1628"
+            "image": "./assets/images/splash-icon.png",
+            "imageWidth": 220,
+            "resizeMode": "contain",
+            "backgroundColor": "#FFFFFF"
           }
         }
       ],
