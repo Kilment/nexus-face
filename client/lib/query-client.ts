@@ -1,7 +1,7 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const AUTH_STORAGE_KEY = "@facesnap_auth_user";
+const AUTH_STORAGE_KEY = "@nexus_auth_user";
 
 export function getApiUrl(): string {
   let host = process.env.EXPO_PUBLIC_DOMAIN;
@@ -31,6 +31,23 @@ async function throwIfResNotOk(res: Response) {
     const text = (await res.text()) || res.statusText;
     throw new Error(`${res.status}: ${text}`);
   }
+}
+
+/** Authenticated GET (or any method) fetch for endpoints that return JSON/binary. */
+export async function authenticatedFetch(
+  route: string,
+  init?: RequestInit,
+): Promise<Response> {
+  const baseUrl = getApiUrl();
+  const url = new URL(route, baseUrl);
+  const authHeaders = await getAuthHeaders();
+  return fetch(url, {
+    ...init,
+    headers: {
+      ...authHeaders,
+      ...init?.headers,
+    },
+  });
 }
 
 export async function apiRequest(

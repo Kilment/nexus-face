@@ -1,23 +1,23 @@
 {
   "expo": {
-    "name": "DE-ID Face",
-    "slug": "de-id-face",
+    "name": "Nexus",
+    "slug": "nexus",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "deidface",
+    "scheme": "nexus",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.facesnap.app",
+      "bundleIdentifier": "com.nexus.app",
       "infoPlist": {
-        "NSCameraUsageDescription": "DE-ID Face needs camera access to capture photos for face processing.",
-        "NSPhotoLibraryUsageDescription": "DE-ID Face needs photo library access to upload images for processing."
+        "NSCameraUsageDescription": "Nexus needs camera access to capture photos for face processing.",
+        "NSPhotoLibraryUsageDescription": "Nexus needs photo library access to upload images for processing."
       }
     },
     "android": {
-      "package": "com.facesnap.app",
+      "package": "com.nexus.app",
       "adaptiveIcon": {
         "backgroundColor": "#0A1628",
         "foregroundImage": "./assets/images/icon.png"
@@ -50,13 +50,13 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "DE-ID Face needs camera access to capture photos for face processing."
+          "cameraPermission": "Nexus needs camera access to capture photos for face processing."
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "DE-ID Face needs photo library access to upload images for processing."
+          "photosPermission": "Nexus needs photo library access to upload images for processing."
         }
       ]
     ],

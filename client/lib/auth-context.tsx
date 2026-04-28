@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getApiUrl } from "@/lib/query-client";
 
-interface User {
+export interface User {
   id: string;
   email?: string;
   username: string;
@@ -20,7 +20,8 @@ interface AuthContextType {
   setUser: (user: User | null) => void;
 }
 
-const AUTH_STORAGE_KEY = "@facesnap_auth_user";
+/** Persisted logged-in user JSON (aligned with `@/lib/query-client` lookups). */
+export const AUTH_STORAGE_KEY = "@nexus_auth_user";
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 

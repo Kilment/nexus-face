@@ -1,5 +1,16 @@
 import React, { useState, useRef } from "react";
-import { View, StyleSheet, Pressable, Alert, ActivityIndicator, Dimensions, Platform, TextInput } from "react-native";
+import {
+  View,
+  StyleSheet,
+  Pressable,
+  Alert,
+  ActivityIndicator,
+  Dimensions,
+  Platform,
+  TextInput,
+} from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as ImagePicker from "expo-image-picker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -17,13 +28,17 @@ import { ThemedView } from "@/components/ThemedView";
 import { GlassCard } from "@/components/GlassCard";
 import { GlassButton } from "@/components/GlassButton";
 import { useTheme } from "@/hooks/useTheme";
-import { useAuth } from "@/lib/auth-context";
+import { useAuth, AUTH_STORAGE_KEY, type User } from "@/lib/auth-context";
 import { Spacing, BorderRadius, Typography } from "@/constants/theme";
 import { hapticFeedback } from "@/lib/haptics";
 import { apiRequest, queryClient } from "@/lib/query-client";
 import { ScrollView } from "react-native";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import type { ProfileStackParamList } from "@/navigation/ProfileStackNavigator";
 
 interface PhotoPair {
+  studyId?: string | null;
   beforePhoto: {
     id: string;
     processedImageUrl: string;
@@ -34,24 +49,27 @@ interface PhotoPair {
     processedImageUrl: string;
     initials: string;
   };
-  improvementScore: number;
-  percentage: number;
-  confidenceLow: number;
-  confidenceHigh: number;
+  metrics: {
+    deltaPredictedFacialAge: number;
+    deltaWrinkles: number;
+    perceivedSkinFirmnessDelta: number;
+    confidence?: number;
+  };
 }
 
 interface UserStats {
   totalPhotos: number;
   linkedPairs: number;
-  averageImprovement: number;
-  bestImprovement: number;
-  worstImprovement: number;
+  averageDeltaPredictedAge: number;
+  averageDeltaWrinkles: number;
+  averagePerceivedFirmnessDelta: number;
   recentPairs: PhotoPair[];
 }
 
 const PAIR_IMAGE_SIZE = (Dimensions.get("window").width - Spacing.lg * 3) / 2 - Spacing.md;
 
 export default function ProfileScreen() {
+  const navigation = useNavigation<NativeStackNavigationProp<ProfileStackParamList>>();
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
   const headerHeight = useHeaderHeight();
@@ -63,13 +81,19 @@ export default function ProfileScreen() {
   const usernameInputRef = useRef<TextInput>(null);
 
   const updateProfileMutation = useMutation({
-    mutationFn: async (username: string) => {
-      const response = await apiRequest("PATCH", "/api/auth/profile", { username });
-      return response.json();
+    mutationFn: async (payload: { username?: string; profileImageUrl?: string | null }) => {
+      const response = await apiRequest("PATCH", "/api/auth/profile", payload);
+      return response.json() as Promise<{ user: User }>;
     },
-    onSuccess: (data) => {
+    onSuccess: async (
+      data,
+      variables,
+    ) => {
+      await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(data.user));
       setUser(data.user);
-      setIsEditingUsername(false);
+      if ("username" in variables && variables.username !== undefined) {
+        setIsEditingUsername(false);
+      }
       hapticFeedback.success();
     },
     onError: (error: any) => {
@@ -83,8 +107,67 @@ export default function ProfileScreen() {
       Alert.alert("Error", "Username must be at least 2 characters");
       return;
     }
-    updateProfileMutation.mutate(newUsername);
+    updateProfileMutation.mutate({ username: newUsername.trim() });
   };
+
+  const promptProfilePhoto = () => {
+    if (updateProfileMutation.isPending) return;
+    const buttons: {
+      text: string;
+      style?: "cancel" | "destructive";
+      onPress?: () => void;
+    }[] = [
+      {
+        text: "Choose Photo",
+        onPress: () => launchProfileImagePicker(),
+      },
+    ];
+    if (user?.profileImageUrl) {
+      buttons.push({
+        text: "Remove Photo",
+        style: "destructive",
+        onPress: () => updateProfileMutation.mutate({ profileImageUrl: null }),
+      });
+    }
+    buttons.push({
+      text: "Cancel",
+      style: "cancel",
+      onPress: () => {},
+    });
+    Alert.alert("Profile Photo", "Tap Choose Photo or remove the current picture.", buttons);
+  };
+
+  async function launchProfileImagePicker() {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert(
+          "Permission Needed",
+          "Allow photo library access so you can choose a profile picture.",
+        );
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.42,
+        base64: true,
+      });
+      if (result.canceled || !result.assets[0]?.base64) return;
+      const asset = result.assets[0];
+      const mimeRaw = asset.mimeType?.toLowerCase() ?? "image/jpeg";
+      let mimeSubtype = mimeRaw.replace(/^image\//, "");
+      if (mimeSubtype === "jpg") mimeSubtype = "jpeg";
+      const allowed = new Set(["jpeg", "png", "webp"]);
+      if (!allowed.has(mimeSubtype)) mimeSubtype = "jpeg";
+      const profileImageUrl = `data:image/${mimeSubtype};base64,${asset.base64}`;
+      updateProfileMutation.mutate({ profileImageUrl });
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "Could not open photo library.";
+      Alert.alert("Error", message);
+    }
+  }
 
   const startEditing = () => {
     setNewUsername(user?.username || "");
@@ -136,9 +219,30 @@ export default function ProfileScreen() {
     );
   };
 
-  const formatPercentage = (value: number) => {
-    return value > 0 ? `+${value}%` : `${value}%`;
+  const formatSigned = (value: number, digits = 1) => {
+    const rounded = Number.isFinite(value) ? value.toFixed(digits) : "0.0";
+    return `${value > 0 ? "+" : ""}${rounded}`;
   };
+
+  const navigateFromRecentComparison = React.useCallback(
+    (pair: PhotoPair) => {
+      hapticFeedback.medium();
+      if (pair.studyId) {
+        navigation.navigate("StudyResults", { studyId: pair.studyId });
+        return;
+      }
+      const tabNav = navigation.getParent();
+      if (typeof tabNav?.navigate !== "function") return;
+      (tabNav.navigate as (name: string, params?: object) => void)("GalleryTab", {
+        screen: "LinkedPair",
+        params: {
+          photoId: pair.beforePhoto.id,
+          linkedPhotoId: pair.afterPhoto.id,
+        },
+      });
+    },
+    [navigation],
+  );
 
   const renderStatCard = (title: string, value: string, icon: keyof typeof Feather.glyphMap, highlight?: boolean) => (
     <GlassCard style={styles.statCard}>
@@ -155,40 +259,53 @@ export default function ProfileScreen() {
   );
 
   const renderPairItem = (pair: PhotoPair) => (
-    <GlassCard key={`${pair.beforePhoto.id}-${pair.afterPhoto.id}`} style={styles.pairCard}>
-      <View style={styles.pairImages}>
-        <View style={styles.pairImageContainer}>
-          <Image
-            source={{ uri: pair.beforePhoto.processedImageUrl }}
-            style={styles.pairImage}
-            contentFit="cover"
-          />
-          <ThemedText style={[styles.pairLabel, { color: theme.warning }]}>Before</ThemedText>
+    <Pressable
+      key={`${pair.beforePhoto.id}-${pair.afterPhoto.id}`}
+      onPress={() => navigateFromRecentComparison(pair)}
+      accessibilityRole="button"
+      accessibilityHint={
+        pair.studyId
+          ? "Opens cohort analysis results"
+          : "Opens this paired comparison in Gallery"
+      }
+      accessibilityLabel="Recent comparison"
+      style={({ pressed }) => [styles.pairPressable, pressed && styles.pairPressablePressed]}
+    >
+      <GlassCard style={styles.pairCard}>
+        <View style={styles.pairImages}>
+          <View style={styles.pairImageContainer}>
+            <Image
+              source={{ uri: pair.beforePhoto.processedImageUrl }}
+              style={styles.pairImage}
+              contentFit="cover"
+            />
+            <ThemedText style={[styles.pairLabel, { color: theme.warning }]}>Before</ThemedText>
+          </View>
+          <View style={styles.pairArrow}>
+            <Feather name="arrow-right" size={18} color={theme.textSecondary} />
+          </View>
+          <View style={styles.pairImageContainer}>
+            <Image
+              source={{ uri: pair.afterPhoto.processedImageUrl }}
+              style={styles.pairImage}
+              contentFit="cover"
+            />
+            <ThemedText style={[styles.pairLabel, { color: theme.success }]}>After</ThemedText>
+          </View>
         </View>
-        <View style={styles.pairArrow}>
-          <Feather name="arrow-right" size={18} color={theme.textSecondary} />
+        <View style={styles.pairScoreContainer}>
+          <ThemedText style={[styles.pairInitials, { color: theme.textSecondary }]}>
+            {pair.beforePhoto.initials}
+          </ThemedText>
+          <ThemedText style={[styles.pairScore, { color: theme.tabIconSelected }]}>
+            ΔAge {formatSigned(pair.metrics.deltaPredictedFacialAge)}y
+          </ThemedText>
+          <ThemedText style={[styles.pairConfidence, { color: theme.textTertiary }]}>
+            ΔWrinkles {formatSigned(pair.metrics.deltaWrinkles)} · Firmness {formatSigned(pair.metrics.perceivedSkinFirmnessDelta)}
+          </ThemedText>
         </View>
-        <View style={styles.pairImageContainer}>
-          <Image
-            source={{ uri: pair.afterPhoto.processedImageUrl }}
-            style={styles.pairImage}
-            contentFit="cover"
-          />
-          <ThemedText style={[styles.pairLabel, { color: theme.success }]}>After</ThemedText>
-        </View>
-      </View>
-      <View style={styles.pairScoreContainer}>
-        <ThemedText style={[styles.pairInitials, { color: theme.textSecondary }]}>
-          {pair.beforePhoto.initials}
-        </ThemedText>
-        <ThemedText style={[styles.pairScore, { color: theme.tabIconSelected }]}>
-          {formatPercentage(pair.percentage)}
-        </ThemedText>
-        <ThemedText style={[styles.pairConfidence, { color: theme.textTertiary }]}>
-          95% CI = {pair.confidenceLow}% - {pair.confidenceHigh}%
-        </ThemedText>
-      </View>
-    </GlassCard>
+      </GlassCard>
+    </Pressable>
   );
 
   return (
@@ -204,47 +321,68 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.profileSection}>
-          <View style={styles.avatarWrapper}>
-            {Platform.OS === "ios" ? (
-              <BlurView
-                intensity={50}
-                tint={isDark ? "dark" : "light"}
-                style={[styles.avatarContainer, styles.avatarGlass]}
-              >
-                {user?.profileImageUrl ? (
-                  <Image
-                    source={{ uri: user.profileImageUrl }}
-                    style={styles.avatar}
-                    contentFit="cover"
-                  />
+          <View style={styles.avatarStack}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityHint="Opens photo library"
+              accessibilityLabel="Update profile photo"
+              onPress={() => {
+                hapticFeedback.light();
+                promptProfilePhoto();
+              }}
+              disabled={updateProfileMutation.isPending}
+            >
+              <View style={styles.avatarWrapper}>
+                {Platform.OS === "ios" ? (
+                  <BlurView
+                    intensity={50}
+                    tint={isDark ? "dark" : "light"}
+                    style={[styles.avatarContainer, styles.avatarGlass]}
+                  >
+                    {user?.profileImageUrl ? (
+                      <Image
+                        source={{ uri: user.profileImageUrl }}
+                        style={styles.avatar}
+                        contentFit="cover"
+                      />
+                    ) : (
+                      <Feather name="user" size={48} color={theme.textSecondary} />
+                    )}
+                  </BlurView>
                 ) : (
-                  <Feather name="user" size={48} color={theme.textSecondary} />
-                )}
-              </BlurView>
-            ) : (
-              <View
-                style={[
-                  styles.avatarContainer,
-                  {
-                    backgroundColor: isDark
-                      ? "rgba(44, 44, 46, 0.9)"
-                      : "rgba(245, 245, 245, 0.9)",
-                  },
-                ]}
-              >
-                {user?.profileImageUrl ? (
-                  <Image
-                    source={{ uri: user.profileImageUrl }}
-                    style={styles.avatar}
-                    contentFit="cover"
-                  />
-                ) : (
-                  <Feather name="user" size={48} color={theme.textSecondary} />
+                  <View
+                    style={[
+                      styles.avatarContainer,
+                      {
+                        backgroundColor: isDark
+                          ? "rgba(44, 44, 46, 0.9)"
+                          : "rgba(245, 245, 245, 0.9)",
+                      },
+                    ]}
+                  >
+                    {user?.profileImageUrl ? (
+                      <Image
+                        source={{ uri: user.profileImageUrl }}
+                        style={styles.avatar}
+                        contentFit="cover"
+                      />
+                    ) : (
+                      <Feather name="user" size={48} color={theme.textSecondary} />
+                    )}
+                  </View>
                 )}
               </View>
-            )}
+            </Pressable>
+            {updateProfileMutation.isPending ? (
+              <View style={styles.avatarLoadingOverlay} pointerEvents="none">
+                <ActivityIndicator size="large" color={theme.tabIconSelected} />
+              </View>
+            ) : null}
           </View>
-          
+          <ThemedText style={[styles.avatarCaption, { color: theme.textTertiary }]}>
+            Tap to update photo
+          </ThemedText>
+
           <View style={styles.usernameContainer}>
             {isEditingUsername ? (
               <View style={styles.editContainer}>
@@ -296,8 +434,13 @@ export default function ProfileScreen() {
               </View>
               {stats.linkedPairs > 0 ? (
                 <View style={styles.statsGrid}>
-                  {renderStatCard("Average", formatPercentage(stats.averageImprovement), "trending-up", true)}
-                  {renderStatCard("Best", formatPercentage(stats.bestImprovement), "award")}
+                  {renderStatCard("Avg ΔAge", `${formatSigned(stats.averageDeltaPredictedAge)}y`, "clock", true)}
+                  {renderStatCard("Avg ΔWrk", formatSigned(stats.averageDeltaWrinkles), "activity")}
+                </View>
+              ) : null}
+              {stats.linkedPairs > 0 ? (
+                <View style={styles.statsGrid}>
+                  {renderStatCard("Avg Firmness", formatSigned(stats.averagePerceivedFirmnessDelta), "wind")}
                 </View>
               ) : null}
             </>
@@ -318,9 +461,36 @@ export default function ProfileScreen() {
             <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary }]}>
               Recent Comparisons
             </ThemedText>
-            {stats.recentPairs.map(renderPairItem)}
+            {stats.recentPairs.slice(0, 1).map(renderPairItem)}
           </View>
         ) : null}
+
+        <View style={styles.section}>
+          <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary }]}>
+            Research cohorts
+          </ThemedText>
+          <Pressable
+            onPress={() => {
+              hapticFeedback.light();
+              navigation.navigate("StudiesList");
+            }}
+          >
+            <GlassCard style={styles.cohortLink}>
+              <View style={styles.cohortLinkRow}>
+                <Feather name="layers" size={22} color={theme.tabIconSelected} />
+                <View style={styles.cohortLinkText}>
+                  <ThemedText style={[styles.cohortTitle, { color: theme.text }]}>
+                    Photo Cohort Analysis
+                  </ThemedText>
+                  <ThemedText style={[styles.cohortSubtitle, { color: theme.textSecondary }]}>
+                    Before Vs After Interventions, Exploratory Endpoints
+                  </ThemedText>
+                </View>
+                <Feather name="chevron-right" size={22} color={theme.textSecondary} />
+              </View>
+            </GlassCard>
+          </Pressable>
+        </View>
 
         <View style={styles.section}>
           <ThemedText style={[styles.sectionTitle, { color: theme.textSecondary }]}>
@@ -350,7 +520,7 @@ export default function ProfileScreen() {
         </View>
 
         <ThemedText style={[styles.footer, { color: theme.textTertiary }]}>
-          DE-ID Face - Anonymize Facial Photos & Analyze Results
+          Nexus - Anonymize Facial Photos & Analyze Results
         </ThemedText>
       </ScrollView>
     </ThemedView>
@@ -367,12 +537,32 @@ const styles = StyleSheet.create({
   },
   profileSection: {
     alignItems: "center",
-    gap: Spacing.md,
+    gap: Spacing.sm,
     paddingVertical: Spacing.lg,
+  },
+  avatarStack: {
+    width: 110,
+    height: 110,
+    alignSelf: "center",
+    position: "relative",
+  },
+  avatarLoadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 55,
+    backgroundColor: "rgba(0, 0, 0, 0.35)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  avatarCaption: {
+    ...Typography.small,
+    marginTop: -Spacing.xs,
+    textAlign: "center",
   },
   avatarWrapper: {
     borderRadius: 60,
     overflow: "hidden",
+    width: 110,
+    height: 110,
   },
   avatarContainer: {
     width: 110,
@@ -469,6 +659,13 @@ const styles = StyleSheet.create({
     ...Typography.body,
     textAlign: "center",
   },
+  pairPressable: {
+    alignSelf: "stretch",
+    borderRadius: BorderRadius.lg,
+  },
+  pairPressablePressed: {
+    opacity: 0.93,
+  },
   pairCard: {
     marginBottom: Spacing.sm,
   },
@@ -510,6 +707,25 @@ const styles = StyleSheet.create({
   pairConfidence: {
     ...Typography.small,
     marginTop: 2,
+  },
+  cohortLink: {
+    padding: Spacing.md,
+  },
+  cohortLinkRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.md,
+  },
+  cohortLinkText: {
+    flex: 1,
+    gap: 4,
+  },
+  cohortTitle: {
+    ...Typography.body,
+    fontWeight: "600",
+  },
+  cohortSubtitle: {
+    ...Typography.small,
   },
   aboutRow: {
     flexDirection: "row",

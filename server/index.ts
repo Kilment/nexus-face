@@ -26,7 +26,7 @@ function setupCors(app: express.Application) {
     }
 
     if (process.env.REPLIT_DOMAINS) {
-      process.env.REPLIT_DOMAINS.split(",").forEach((d) => {
+      process.env.REPLIT_DOMAINS.split(",").forEach((d: string) => {
         origins.add(`https://${d.trim()}`);
       });
     }
@@ -35,11 +35,16 @@ function setupCors(app: express.Application) {
 
     if (origin && origins.has(origin)) {
       res.header("Access-Control-Allow-Origin", origin);
+      res.header("Vary", "Origin");
       res.header(
         "Access-Control-Allow-Methods",
         "GET, POST, PUT, DELETE, OPTIONS",
       );
-      res.header("Access-Control-Allow-Headers", "Content-Type");
+      const requestedHeaders = req.header("access-control-request-headers");
+      res.header(
+        "Access-Control-Allow-Headers",
+        requestedHeaders || "Content-Type, Authorization, X-User-Id",
+      );
       res.header("Access-Control-Allow-Credentials", "true");
     }
 

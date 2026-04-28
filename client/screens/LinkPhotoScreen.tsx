@@ -45,6 +45,7 @@ export default function LinkPhotoScreen() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/photos"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
       navigation.goBack();
     },
     onError: () => {

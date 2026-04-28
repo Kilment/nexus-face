@@ -1,8 +1,10 @@
+import React from "react";
 import { Platform } from "react-native";
 import { NativeStackNavigationOptions } from "@react-navigation/native-stack";
 import { isLiquidGlassAvailable } from "expo-glass-effect";
 
 import { useTheme } from "@/hooks/useTheme";
+import { PaddedHeaderBackButton } from "@/components/PaddedHeaderBackButton";
 
 interface UseScreenOptionsParams {
   transparent?: boolean;
@@ -16,11 +18,16 @@ export function useScreenOptions({
   return {
     headerTitleAlign: "center",
     headerTransparent: transparent,
-    headerBlurEffect: isDark ? "dark" : "light",
-    headerTintColor: theme.text,
+    // Only apply iOS blur when header is transparent over content.
+    headerBlurEffect: transparent ? (isDark ? "dark" : "light") : undefined,
+    headerTintColor: "#FFFFFF",
+    headerBackVisible: true,
+    headerShadowVisible: false,
+    headerLargeTitle: false,
+    headerLeft: (props) => React.createElement(PaddedHeaderBackButton, props),
     headerStyle: {
       backgroundColor: Platform.select({
-        ios: undefined,
+        ios: theme.backgroundRoot,
         android: theme.backgroundRoot,
         web: theme.backgroundRoot,
       }),

@@ -5,6 +5,8 @@ import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { BlurView } from "expo-blur";
 import { CameraView, CameraType, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
+import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system/legacy";
 import { Feather } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import Animated, {
@@ -26,6 +28,7 @@ import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { hapticFeedback } from "@/lib/haptics";
+import { apiRequest, queryClient } from "@/lib/query-client";
 
 type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
 
@@ -169,6 +172,49 @@ export default function CameraScreen() {
     }
   };
 
+  const importZipBatch = async () => {
+    hapticFeedback.light();
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: "application/zip",
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled || !result.assets[0]?.uri) return;
+
+      const zipBase64 = await FileSystem.readAsStringAsync(result.assets[0].uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      const response = await apiRequest("POST", "/api/photos/import-zip", { zipBase64 });
+      const data = (await response.json()) as {
+        importedCount: number;
+        skippedCount: number;
+        skipped?: Array<{ fileName: string; reason: string }>;
+      };
+
+      queryClient.invalidateQueries({ queryKey: ["/api/photos"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+      hapticFeedback.success();
+
+      if (data.skippedCount > 0) {
+        Alert.alert(
+          "Import Completed With Skips",
+          `Imported ${data.importedCount} Photos. Skipped ${data.skippedCount} Photos.`,
+        );
+      } else {
+        Alert.alert("Import Completed", `Imported ${data.importedCount} Photos.`);
+      }
+    } catch (error) {
+      console.error("Error Importing Zip Batch:", error);
+      hapticFeedback.error();
+      Alert.alert(
+        "Import Failed",
+        "Unable To Import Zip Batch. Check tags.json And File Names, Then Try Again.",
+      );
+    }
+  };
+
   const processBatch = () => {
     if (batchImages.length === 0) return;
     hapticFeedback.medium();
@@ -236,6 +282,13 @@ export default function CameraScreen() {
             onPress={pickSingleImage}
             style={styles.glassButtonStyle}
           />
+          <GlassButton
+            title="Import Zip Batch"
+            icon="folder"
+            variant="secondary"
+            onPress={importZipBatch}
+            style={styles.glassButtonStyle}
+          />
         </View>
       </ThemedView>
     );
@@ -269,6 +322,13 @@ export default function CameraScreen() {
             icon="layers"
             variant="secondary"
             onPress={pickImages}
+            style={styles.glassButtonStyle}
+          />
+          <GlassButton
+            title="Import Zip Batch"
+            icon="folder"
+            variant="secondary"
+            onPress={importZipBatch}
             style={styles.glassButtonStyle}
           />
         </View>
@@ -448,7 +508,12 @@ export default function CameraScreen() {
           theme={theme}
         />
 
-        <View style={{ width: 56 }} />
+        <GlassIconButton
+          icon="folder"
+          size={56}
+          onPress={importZipBatch}
+          isDark={isDark}
+        />
       </View>
     </View>
   );

@@ -4,7 +4,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "expo-image";
 import { useNavigation, useRoute, RouteProp, StackActions } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { HeaderButton } from "@react-navigation/elements";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
@@ -34,28 +33,34 @@ export default function TaggingScreen() {
   React.useLayoutEffect(() => {
     navigation.setOptions({
       headerLeft: () => (
-        <HeaderButton
-          onPress={() => navigation.goBack()}
-          pressColor={theme.tabIconSelected}
-        >
-          <ThemedText style={{ color: theme.tabIconSelected }}>Cancel</ThemedText>
-        </HeaderButton>
+        <View style={{ paddingLeft: Spacing.xl }}>
+          <Pressable
+            onPress={() => navigation.goBack()}
+            hitSlop={12}
+            style={styles.headerAction}
+          >
+            <ThemedText style={{ color: theme.tabIconSelected }}>Cancel</ThemedText>
+          </Pressable>
+        </View>
       ),
       headerRight: () => (
-        <HeaderButton
-          onPress={handleSave}
-          disabled={!isFormValid || isSaving}
-          pressColor={theme.tabIconSelected}
-        >
-          <ThemedText
-            style={{
-              color: isFormValid && !isSaving ? theme.tabIconSelected : theme.textTertiary,
-              fontWeight: "600",
-            }}
+        <View style={{ paddingRight: Spacing.xl }}>
+          <Pressable
+            onPress={handleSave}
+            disabled={!isFormValid || isSaving}
+            hitSlop={12}
+            style={styles.headerAction}
           >
-            Save
-          </ThemedText>
-        </HeaderButton>
+            <ThemedText
+              style={{
+                color: isFormValid && !isSaving ? theme.tabIconSelected : theme.textTertiary,
+                fontWeight: "600",
+              }}
+            >
+              Save
+            </ThemedText>
+          </Pressable>
+        </View>
       ),
     });
   }, [navigation, isFormValid, isSaving, theme]);
@@ -104,7 +109,7 @@ export default function TaggingScreen() {
       {isSaving && (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator size="large" color={theme.tabIconSelected} />
-          <ThemedText style={styles.loadingText}>Saving photo...</ThemedText>
+          <ThemedText style={styles.loadingText}>Saving Photo...</ThemedText>
         </View>
       )}
       <KeyboardAwareScrollViewCompat
@@ -307,5 +312,14 @@ const styles = StyleSheet.create({
     marginTop: Spacing.md,
     color: "#FFFFFF",
     fontWeight: "600",
+  },
+  headerAction: {
+    minHeight: 36,
+    minWidth: 56,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: BorderRadius.full,
+    justifyContent: "center",
+    alignItems: "center",
   },
 });

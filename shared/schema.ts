@@ -1,6 +1,14 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, boolean, integer } from "drizzle-orm/pg-core";
-import { createInsertSchema, createSelectSchema } from "drizzle-zod";
+import {
+  pgTable,
+  text,
+  varchar,
+  timestamp,
+  integer,
+  jsonb,
+  uniqueIndex,
+} from "drizzle-orm/pg-core";
+import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 export const users = pgTable("users", {
@@ -28,7 +36,6 @@ export const photos = pgTable("photos", {
   beforeAfter: varchar("before_after", { length: 10 }).notNull(),
   locationCode: varchar("location_code", { length: 50 }).notNull(),
   linkedPhotoId: varchar("linked_photo_id"),
-  improvementScore: integer("improvement_score"),
   gender: varchar("gender", { length: 20 }),
   ageRange: varchar("age_range", { length: 20 }),
   ethnicity: varchar("ethnicity", { length: 50 }),
@@ -36,8 +43,66 @@ export const photos = pgTable("photos", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+/** Cohort / study batch for research analysis (one before, many after). */
+export const studies = pgTable("studies", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  userId: varchar("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  title: text("title"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const studyPhotos = pgTable(
+  "study_photos",
+  {
+    id: varchar("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    studyId: varchar("study_id")
+      .notNull()
+      .references(() => studies.id, { onDelete: "cascade" }),
+    photoId: varchar("photo_id")
+      .notNull()
+      .references(() => photos.id, { onDelete: "cascade" }),
+    role: varchar("role", { length: 10 }).notNull(),
+    weeksAfter: integer("weeks_after"),
+    interventionLabel: text("intervention_label"),
+    sortOrder: integer("sort_order").notNull().default(0),
+  },
+  (t) => [uniqueIndex("study_photos_study_photo_idx").on(t.studyId, t.photoId)],
+);
+
+export const pairAnalysis = pgTable(
+  "pair_analysis",
+  {
+    id: varchar("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    studyId: varchar("study_id")
+      .notNull()
+      .references(() => studies.id, { onDelete: "cascade" }),
+    beforePhotoId: varchar("before_photo_id")
+      .notNull()
+      .references(() => photos.id, { onDelete: "cascade" }),
+    afterPhotoId: varchar("after_photo_id")
+      .notNull()
+      .references(() => photos.id, { onDelete: "cascade" }),
+    analysisVersion: varchar("analysis_version", { length: 64 }).notNull(),
+    modelId: varchar("model_id", { length: 128 }).notNull(),
+    metrics: jsonb("metrics").notNull(),
+    landmarkMetrics: jsonb("landmark_metrics"),
+    rawArtifact: text("raw_artifact"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex("pair_analysis_study_after_idx").on(t.studyId, t.afterPhotoId)],
+);
+
 export const usersRelations = relations(users, ({ many }) => ({
   photos: many(photos),
+  studies: many(studies),
 }));
 
 export const photosRelations = relations(photos, ({ one }) => ({
@@ -47,6 +112,41 @@ export const photosRelations = relations(photos, ({ one }) => ({
   }),
   linkedPhoto: one(photos, {
     fields: [photos.linkedPhotoId],
+    references: [photos.id],
+  }),
+}));
+
+export const studiesRelations = relations(studies, ({ many, one }) => ({
+  user: one(users, {
+    fields: [studies.userId],
+    references: [users.id],
+  }),
+  studyPhotos: many(studyPhotos),
+  pairAnalyses: many(pairAnalysis),
+}));
+
+export const studyPhotosRelations = relations(studyPhotos, ({ one }) => ({
+  study: one(studies, {
+    fields: [studyPhotos.studyId],
+    references: [studies.id],
+  }),
+  photo: one(photos, {
+    fields: [studyPhotos.photoId],
+    references: [photos.id],
+  }),
+}));
+
+export const pairAnalysisRelations = relations(pairAnalysis, ({ one }) => ({
+  study: one(studies, {
+    fields: [pairAnalysis.studyId],
+    references: [studies.id],
+  }),
+  beforePhoto: one(photos, {
+    fields: [pairAnalysis.beforePhotoId],
+    references: [photos.id],
+  }),
+  afterPhoto: one(photos, {
+    fields: [pairAnalysis.afterPhotoId],
     references: [photos.id],
   }),
 }));
@@ -75,7 +175,38 @@ export const insertPhotoSchema = createInsertSchema(photos).pick({
   weeksAfter: true,
 });
 
+export const insertStudySchema = createInsertSchema(studies).pick({
+  userId: true,
+  title: true,
+});
+
+export const insertStudyPhotoSchema = createInsertSchema(studyPhotos).pick({
+  studyId: true,
+  photoId: true,
+  role: true,
+  weeksAfter: true,
+  interventionLabel: true,
+  sortOrder: true,
+});
+
+export const insertPairAnalysisSchema = createInsertSchema(pairAnalysis).pick({
+  studyId: true,
+  beforePhotoId: true,
+  afterPhotoId: true,
+  analysisVersion: true,
+  modelId: true,
+  metrics: true,
+  landmarkMetrics: true,
+  rawArtifact: true,
+});
+
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 export type InsertPhoto = z.infer<typeof insertPhotoSchema>;
 export type Photo = typeof photos.$inferSelect;
+export type Study = typeof studies.$inferSelect;
+export type InsertStudy = z.infer<typeof insertStudySchema>;
+export type StudyPhoto = typeof studyPhotos.$inferSelect;
+export type InsertStudyPhoto = z.infer<typeof insertStudyPhotoSchema>;
+export type PairAnalysisRow = typeof pairAnalysis.$inferSelect;
+export type InsertPairAnalysis = z.infer<typeof insertPairAnalysisSchema>;

@@ -9,7 +9,7 @@ import {
   Platform,
 } from "react-native";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
-import { useHeaderHeight, HeaderButton } from "@react-navigation/elements";
+import { useHeaderHeight } from "@react-navigation/elements";
 import { BlurView } from "expo-blur";
 import { Image } from "expo-image";
 import { Feather } from "@expo/vector-icons";
@@ -68,12 +68,15 @@ export default function PhotoDetailScreen() {
   React.useLayoutEffect(() => {
     galleryNav.setOptions({
       headerRight: () => (
-        <HeaderButton
-          onPress={handleDelete}
-          pressColor={theme.error}
-        >
-          <Feather name="trash-2" size={22} color={theme.error} />
-        </HeaderButton>
+        <View style={{ paddingRight: Spacing.xl }}>
+          <Pressable
+            onPress={handleDelete}
+            hitSlop={12}
+            style={styles.headerAction}
+          >
+            <Feather name="trash-2" size={22} color={theme.error} />
+          </Pressable>
+        </View>
       ),
     });
   }, [galleryNav, theme]);
@@ -123,7 +126,7 @@ export default function PhotoDetailScreen() {
           styles.content,
           {
             paddingTop: headerHeight + Spacing.lg,
-            paddingBottom: tabBarHeight + Spacing.xl,
+            paddingBottom: tabBarHeight + Spacing["3xl"],
           },
         ]}
         showsVerticalScrollIndicator={false}
@@ -405,5 +408,11 @@ const styles = StyleSheet.create({
   linkedText: {
     ...Typography.body,
     flex: 1,
+  },
+  headerAction: {
+    minHeight: 32,
+    minWidth: 32,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

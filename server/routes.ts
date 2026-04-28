@@ -3,10 +3,21 @@ import { createServer, type Server } from "node:http";
 import session from "express-session";
 import crypto from "crypto";
 import { storage } from "./storage";
-import { processImageForFaceAnonymization } from "./face-processor";
+import { processImageForFaceAnonymization, getDeIdPipelineInfo } from "./face-processor";
+import { processImageForFaceAnonymizationOpenAI } from "./openai";
 import { standardizePhoto } from "./photo-standardizer";
 import { insertPhotoSchema } from "@shared/schema";
-import { calculateImprovementScore, detectDemographics } from "./rekognition";
+import { detectDemographics } from "./rekognition";
+import { analyzeStudy } from "./study-analysis";
+import { buildAllStudiesExportBundle, buildStudyExportBundle } from "./cohort-export";
+import {
+  aggregateByMetric,
+  rankInterventions,
+  type InterventionRow,
+} from "./cohort-stats";
+import { pairMetricsSchema } from "@shared/cohort-metrics";
+import { z } from "zod";
+import JSZip from "jszip";
 
 function hashPassword(password: string): string {
   const salt = crypto.randomBytes(16).toString("hex");
@@ -65,9 +76,156 @@ function requireAuth(req: Request, res: Response, next: NextFunction) {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  const deIdMetrics = {
+    total: 0,
+    faceApi: 0,
+    openAiFallback: 0,
+  };
+
+  type AnalysisState = "idle" | "running" | "complete" | "failed";
+  type StudyAnalysisStatus = {
+    state: AnalysisState;
+    startedAt: string | null;
+    finishedAt: string | null;
+    error: string | null;
+    analysisCount: number;
+  };
+  const analysisStatusByStudy = new Map<string, StudyAnalysisStatus>();
+
+  function getStudyAnalysisStatus(studyId: string): StudyAnalysisStatus {
+    return (
+      analysisStatusByStudy.get(studyId) ?? {
+        state: "idle",
+        startedAt: null,
+        finishedAt: null,
+        error: null,
+        analysisCount: 0,
+      }
+    );
+  }
+
+  async function triggerStudyAnalysis(studyId: string, userId: string): Promise<StudyAnalysisStatus> {
+    const current = getStudyAnalysisStatus(studyId);
+    if (current.state === "running") {
+      return current;
+    }
+
+    const startedAt = new Date().toISOString();
+    analysisStatusByStudy.set(studyId, {
+      state: "running",
+      startedAt,
+      finishedAt: null,
+      error: null,
+      analysisCount: current.analysisCount ?? 0,
+    });
+
+    void analyzeStudy(studyId, userId)
+      .then((rows) => {
+        analysisStatusByStudy.set(studyId, {
+          state: "complete",
+          startedAt,
+          finishedAt: new Date().toISOString(),
+          error: null,
+          analysisCount: rows.length,
+        });
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : "Analysis Failed";
+        console.error(`Background study analysis failed for ${studyId}:`, error);
+        analysisStatusByStudy.set(studyId, {
+          state: "failed",
+          startedAt,
+          finishedAt: new Date().toISOString(),
+          error: message,
+          analysisCount: 0,
+        });
+      });
+
+    return getStudyAnalysisStatus(studyId);
+  }
+
+  async function deIdentifyWithFallback(
+    imageBase64: string,
+  ): Promise<{
+    processedImageBase64: string;
+    method: "FaceApi" | "OpenAIFallback";
+    fallbackReason?: string;
+  }> {
+    try {
+      const processedImageBase64 = await processImageForFaceAnonymization(imageBase64);
+      return { processedImageBase64, method: "FaceApi" };
+    } catch (primaryError) {
+      const fallbackReason =
+        primaryError instanceof Error ? primaryError.message : "Primary de-identification failed";
+      console.warn(`Primary de-identification failed. Using OpenAI fallback. Reason: ${fallbackReason}`);
+      const processedImageBase64 = await processImageForFaceAnonymizationOpenAI(imageBase64);
+      return { processedImageBase64, method: "OpenAIFallback", fallbackReason };
+    }
+  }
+
+  function logDeIdMethod(context: string, method: "FaceApi" | "OpenAIFallback", extra?: string) {
+    deIdMetrics.total += 1;
+    if (method === "FaceApi") {
+      deIdMetrics.faceApi += 1;
+    } else {
+      deIdMetrics.openAiFallback += 1;
+    }
+    const fallbackRate =
+      deIdMetrics.total > 0
+        ? ((deIdMetrics.openAiFallback / deIdMetrics.total) * 100).toFixed(1)
+        : "0.0";
+    const suffix = extra ? ` | ${extra}` : "";
+    console.log(
+      `[DEID] ${context} | Method=${method} | Total=${deIdMetrics.total} | FaceApi=${deIdMetrics.faceApi} | OpenAIFallback=${deIdMetrics.openAiFallback} | FallbackRate=${fallbackRate}%${suffix}`,
+    );
+  }
+
+  async function runCohortAnalysisForLinkedPair(
+    userId: string,
+    first: Awaited<ReturnType<typeof storage.getPhoto>>,
+    second: Awaited<ReturnType<typeof storage.getPhoto>>,
+  ): Promise<string | null> {
+    if (!first || !second) return null;
+    if (!first.linkedPhotoId || !second.linkedPhotoId) return null;
+
+    const beforePhoto = first.beforeAfter === "before" ? first : second;
+    const afterPhoto = first.beforeAfter === "after" ? first : second;
+    if (beforePhoto.beforeAfter !== "before" || afterPhoto.beforeAfter !== "after") return null;
+
+    const existing = await storage.getPairAnalysisForAfterPhoto(userId, afterPhoto.id);
+    const existingStudyForPair = await storage.findStudyForPhotoPair(userId, beforePhoto.id, afterPhoto.id);
+    const studyId = existing?.studyId ?? existingStudyForPair?.id ??
+      (
+        await storage.createStudy({
+          userId,
+          title: `${beforePhoto.initials} Cohort Study`,
+        })
+      ).id;
+
+    await storage.replaceStudyMembers(studyId, [
+      {
+        photoId: beforePhoto.id,
+        role: "before",
+        weeksAfter: null,
+        interventionLabel: null,
+        sortOrder: 0,
+      },
+      {
+        photoId: afterPhoto.id,
+        role: "after",
+        weeksAfter: afterPhoto.weeksAfter ?? null,
+        interventionLabel: null,
+        sortOrder: 1,
+      },
+    ]);
+
+    await triggerStudyAnalysis(studyId, userId);
+    return studyId;
+  }
+
   app.use(
     session({
-      secret: process.env.SESSION_SECRET || "facesnap-secret-key",
+      secret: process.env.SESSION_SECRET || "nexus-secret-key",
       resave: false,
       saveUninitialized: false,
       cookie: {
@@ -219,12 +377,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/auth/profile", requireAuth, async (req, res) => {
     try {
-      const { username } = req.body;
-      if (!username || username.length < 2) {
-        return res.status(400).json({ error: "Username must be at least 2 characters" });
+      const { username: rawUsername, profileImageUrl: rawProfileImageUrl } = req.body as {
+        username?: string;
+        profileImageUrl?: string | null;
+      };
+
+      const updates: Partial<{
+        username: string;
+        profileImageUrl: string | null;
+      }> = {};
+
+      if (rawProfileImageUrl !== undefined) {
+        if (rawProfileImageUrl === null || rawProfileImageUrl === "") {
+          updates.profileImageUrl = null;
+        } else if (
+          typeof rawProfileImageUrl === "string" &&
+          /^data:image\/(jpeg|jpg|png|webp);base64,/.test(rawProfileImageUrl)
+        ) {
+          if (rawProfileImageUrl.length > 2_500_000) {
+            return res.status(400).json({ error: "Profile photo is too large. Try a smaller image." });
+          }
+          updates.profileImageUrl = rawProfileImageUrl;
+        } else {
+          return res.status(400).json({ error: "Invalid profile image format" });
+        }
       }
 
-      const updatedUser = await storage.updateUser(req.session.userId!, { username });
+      if (rawUsername !== undefined) {
+        const username = typeof rawUsername === "string" ? rawUsername.trim() : "";
+        if (username.length < 2) {
+          return res.status(400).json({ error: "Username must be at least 2 characters" });
+        }
+        updates.username = username;
+      }
+
+      if (Object.keys(updates).length === 0) {
+        return res.status(400).json({ error: "Nothing to update" });
+      }
+
+      const updatedUser = await storage.updateUser(req.session.userId!, updates);
       res.json({ user: updatedUser });
     } catch (error) {
       console.error("Profile update error:", error);
@@ -271,12 +462,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Image data required" });
       }
 
-      const processedBase64 = await processImageForFaceAnonymization(imageBase64);
-      res.json({ processedImageBase64: processedBase64 });
+      const result = await deIdentifyWithFallback(imageBase64);
+      logDeIdMethod(
+        "SingleProcess",
+        result.method,
+        result.fallbackReason ? `FallbackReason=${result.fallbackReason}` : undefined,
+      );
+      res.json({
+        processedImageBase64: result.processedImageBase64,
+        deIdPipeline: getDeIdPipelineInfo(),
+        deIdMethod: result.method,
+        deIdFallbackReason: result.fallbackReason ?? null,
+      });
     } catch (error) {
       console.error("Error processing image:", error);
-      res.status(500).json({ error: "Failed to process image" });
+      const message = error instanceof Error ? error.message : "Failed to process image";
+      res.status(500).json({ error: message });
     }
+  });
+
+  app.get("/api/deid/pipeline", requireAuth, async (_req, res) => {
+    const info = getDeIdPipelineInfo();
+    if (!info) {
+      return res.status(503).json({ error: "De-Identification Pipeline Not Loaded Yet" });
+    }
+    res.json({ deIdPipeline: info });
   });
 
   app.post("/api/photos", requireAuth, async (req, res) => {
@@ -323,22 +533,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         await storage.updatePhotoLink(photo.id, targetPhoto.id);
         await storage.updatePhotoLink(targetPhoto.id, photo.id);
-        
-        // Calculate improvement score if this is an "after" photo linking to a "before" photo
-        // Use standardized images for consistent Rekognition analysis
-        if (photo.beforeAfter === "after" && targetPhoto.beforeAfter === "before") {
-          const result = await calculateImprovementScore(
-            targetPhoto.standardizedImageBase64 || targetPhoto.processedImageBase64 || "",
-            photo.standardizedImageBase64 || photo.processedImageBase64 || ""
-          );
-          await storage.updatePhotoLink(photo.id, targetPhoto.id, result.score);
-        } else if (photo.beforeAfter === "before" && targetPhoto.beforeAfter === "after") {
-          const result = await calculateImprovementScore(
-            photo.standardizedImageBase64 || photo.processedImageBase64 || "",
-            targetPhoto.standardizedImageBase64 || targetPhoto.processedImageBase64 || ""
-          );
-          await storage.updatePhotoLink(targetPhoto.id, photo.id, result.score);
-        }
+
+        await runCohortAnalysisForLinkedPair(req.session.userId!, photo, targetPhoto);
 
         // Return updated photo with link info
         const updatedPhoto = await storage.getPhoto(photo.id);
@@ -349,6 +545,130 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error saving photo:", error);
       res.status(500).json({ error: "Failed to save photo" });
+    }
+  });
+
+  app.post("/api/photos/import-zip", requireAuth, async (req, res) => {
+    try {
+      const body = z
+        .object({
+          zipBase64: z.string().min(1),
+        })
+        .safeParse(req.body);
+
+      if (!body.success) {
+        return res.status(400).json({ error: "Invalid Request Body" });
+      }
+
+      const zip = await JSZip.loadAsync(Buffer.from(body.data.zipBase64, "base64"));
+      const manifestFile =
+        zip.file("tags.json") ??
+        zip.file("manifest.json") ??
+        zip.file("Tags.json") ??
+        zip.file("Manifest.json");
+
+      if (!manifestFile) {
+        return res.status(400).json({
+          error: "Missing Manifest File. Include tags.json In The Zip Root.",
+        });
+      }
+
+      const manifestRaw = await manifestFile.async("string");
+      const manifestParsed = z
+        .object({
+          photos: z.array(
+            z.object({
+              fileName: z.string().min(1),
+              initials: z.string().min(1).max(3),
+              beforeAfter: z.enum(["before", "after"]),
+              locationCode: z.string().min(1).max(50),
+              weeksAfter: z.number().int().nullable().optional(),
+            }),
+          ),
+        })
+        .safeParse(JSON.parse(manifestRaw));
+
+      if (!manifestParsed.success) {
+        return res.status(400).json({
+          error: "Invalid Manifest Format",
+          details: manifestParsed.error.flatten(),
+        });
+      }
+
+      const imported: string[] = [];
+      const skipped: Array<{ fileName: string; reason: string }> = [];
+
+      for (const item of manifestParsed.data.photos) {
+        const imageFile =
+          zip.file(item.fileName) ??
+          zip.file(item.fileName.replace(/^\.\//, "")) ??
+          zip.file(`images/${item.fileName}`);
+
+        if (!imageFile) {
+          skipped.push({ fileName: item.fileName, reason: "File Not Found In Zip" });
+          continue;
+        }
+
+        const ext = item.fileName.toLowerCase().split(".").pop() ?? "";
+        if (!["png", "jpg", "jpeg", "webp"].includes(ext)) {
+          skipped.push({ fileName: item.fileName, reason: "Unsupported Image Format" });
+          continue;
+        }
+
+        const rawImageBase64 = await imageFile.async("base64");
+        const deidResult = await deIdentifyWithFallback(rawImageBase64);
+        const processedImageBase64 = deidResult.processedImageBase64;
+        logDeIdMethod(
+          `ZipImport:${item.fileName}`,
+          deidResult.method,
+          deidResult.fallbackReason ? `FallbackReason=${deidResult.fallbackReason}` : undefined,
+        );
+        const standardizedImageBase64 = await standardizePhoto(processedImageBase64);
+        const demographics = await detectDemographics(standardizedImageBase64);
+
+        const photo = await storage.createPhoto({
+          userId: req.session.userId!,
+          processedImageUrl: `data:image/png;base64,${processedImageBase64}`,
+          processedImageBase64,
+          standardizedImageBase64,
+          initials: item.initials.toUpperCase(),
+          beforeAfter: item.beforeAfter,
+          locationCode: item.locationCode,
+          gender: demographics?.gender,
+          ageRange: demographics?.ageRange,
+          ethnicity: demographics?.ethnicity,
+          weeksAfter: item.beforeAfter === "after" ? item.weeksAfter ?? null : null,
+        });
+
+        const linkablePhotos = await storage.getLinkablePhotos(
+          req.session.userId!,
+          photo.initials,
+          photo.beforeAfter,
+          photo.id,
+        );
+
+        if (linkablePhotos.length > 0) {
+          const targetPhoto = linkablePhotos.sort(
+            (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+          )[0];
+          if (targetPhoto) {
+            await storage.updatePhotoLink(photo.id, targetPhoto.id);
+            await storage.updatePhotoLink(targetPhoto.id, photo.id);
+            await runCohortAnalysisForLinkedPair(req.session.userId!, photo, targetPhoto);
+          }
+        }
+
+        imported.push(photo.id);
+      }
+
+      return res.status(201).json({
+        importedCount: imported.length,
+        skippedCount: skipped.length,
+        skipped,
+      });
+    } catch (error) {
+      console.error("Error Importing Zip Photos:", error);
+      return res.status(500).json({ error: "Failed To Import Zip Photos" });
     }
   });
 
@@ -385,13 +705,181 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const updatedPhoto = await storage.updatePhotoLink(photo.id, linkedPhotoId);
       
       if (linkedPhotoId) {
+        const linkedPhoto = await storage.getPhoto(linkedPhotoId);
+        if (!linkedPhoto || linkedPhoto.userId !== req.session.userId) {
+          return res.status(404).json({ error: "Linked photo not found" });
+        }
         await storage.updatePhotoLink(linkedPhotoId, photo.id);
+        await runCohortAnalysisForLinkedPair(req.session.userId!, photo, linkedPhoto);
       }
 
       res.json({ photo: updatedPhoto });
     } catch (error) {
       console.error("Error linking photo:", error);
       res.status(500).json({ error: "Failed to link photo" });
+    }
+  });
+
+  app.get("/api/photos/:id/pair-analysis", requireAuth, async (req, res) => {
+    try {
+      const photo = await storage.getPhoto(req.params.id);
+      if (!photo || photo.userId !== req.session.userId) {
+        return res.status(404).json({ error: "Photo not found" });
+      }
+      if (!photo.linkedPhotoId) {
+        return res.status(404).json({ error: "Photo is not linked" });
+      }
+
+      const analysis = await storage.getPairAnalysisForPair(
+        req.session.userId!,
+        photo.id,
+        photo.linkedPhotoId,
+      );
+      if (!analysis) {
+        const study = await storage.findStudyForPhotoPair(req.session.userId!, photo.id, photo.linkedPhotoId);
+        if (study) {
+          return res.status(202).json({
+            error: "Pair Analysis Pending",
+            studyId: study.id,
+            analysisStatus: getStudyAnalysisStatus(study.id),
+          });
+        }
+        return res.status(404).json({ error: "No pair analysis found" });
+      }
+      res.json({ analysis });
+    } catch (error) {
+      console.error("Error fetching pair analysis:", error);
+      res.status(500).json({ error: "Failed to fetch pair analysis" });
+    }
+  });
+
+  app.get("/api/photos/:id/pair-analysis-status", requireAuth, async (req, res) => {
+    try {
+      const photo = await storage.getPhoto(req.params.id);
+      if (!photo || photo.userId !== req.session.userId) {
+        return res.status(404).json({ error: "Photo not found" });
+      }
+      if (!photo.linkedPhotoId) {
+        return res.status(404).json({ error: "Photo is not linked" });
+      }
+
+      const study = await storage.findStudyForPhotoPair(req.session.userId!, photo.id, photo.linkedPhotoId);
+      if (!study) {
+        return res.json({
+          linked: true,
+          studyId: null,
+          status: {
+            state: "idle",
+            startedAt: null,
+            finishedAt: null,
+            error: null,
+            analysisCount: 0,
+          },
+          hasAnalysis: false,
+        });
+      }
+
+      const analysis = await storage.getPairAnalysisForPair(req.session.userId!, photo.id, photo.linkedPhotoId);
+      const status = getStudyAnalysisStatus(study.id);
+      res.json({
+        linked: true,
+        studyId: study.id,
+        status: status.state === "idle" && analysis ? { ...status, state: "complete" } : status,
+        hasAnalysis: Boolean(analysis),
+      });
+    } catch (error) {
+      console.error("Error fetching pair analysis status:", error);
+      res.status(500).json({ error: "Failed to fetch pair analysis status" });
+    }
+  });
+
+  app.post("/api/photos/:id/convert-to-study", requireAuth, async (req, res) => {
+    try {
+      const photo = await storage.getPhoto(req.params.id);
+      if (!photo || photo.userId !== req.session.userId) {
+        return res.status(404).json({ error: "Photo Not Found" });
+      }
+      if (!photo.linkedPhotoId) {
+        return res.status(400).json({ error: "Photo Is Not Linked" });
+      }
+
+      const linkedPhoto = await storage.getPhoto(photo.linkedPhotoId);
+      if (!linkedPhoto || linkedPhoto.userId !== req.session.userId) {
+        return res.status(404).json({ error: "Linked Photo Not Found" });
+      }
+
+      const beforePhoto = photo.beforeAfter === "before" ? photo : linkedPhoto;
+      const afterPhoto = photo.beforeAfter === "after" ? photo : linkedPhoto;
+      if (beforePhoto.beforeAfter !== "before" || afterPhoto.beforeAfter !== "after") {
+        return res.status(400).json({ error: "Linked Photos Must Include One Before And One After" });
+      }
+
+      const existing = await storage.getPairAnalysisForPair(req.session.userId!, beforePhoto.id, afterPhoto.id);
+      const existingStudyForPair = await storage.findStudyForPhotoPair(
+        req.session.userId!,
+        beforePhoto.id,
+        afterPhoto.id,
+      );
+
+      const study =
+        existingStudyForPair ??
+        (existing ? await storage.getStudyForUser(existing.studyId, req.session.userId!) : undefined) ??
+        (await storage.createStudy({
+          userId: req.session.userId!,
+          title: `${beforePhoto.initials} Cohort Study`,
+        }));
+
+      const existingMembers = await storage.getStudyPhotosWithPhotos(study.id);
+      const mergedByPhotoId = new Map<
+        string,
+        {
+          photoId: string;
+          role: string;
+          weeksAfter: number | null;
+          interventionLabel: string | null;
+          sortOrder: number;
+        }
+      >();
+
+      existingMembers.forEach((member, idx) => {
+        mergedByPhotoId.set(member.photo.id, {
+          photoId: member.photo.id,
+          role: member.studyPhoto.role,
+          weeksAfter: member.studyPhoto.weeksAfter ?? member.photo.weeksAfter ?? null,
+          interventionLabel: member.studyPhoto.interventionLabel ?? null,
+          sortOrder: idx,
+        });
+      });
+
+      mergedByPhotoId.set(beforePhoto.id, {
+        photoId: beforePhoto.id,
+        role: "before",
+        weeksAfter: null,
+        interventionLabel: null,
+        sortOrder: mergedByPhotoId.get(beforePhoto.id)?.sortOrder ?? mergedByPhotoId.size,
+      });
+
+      mergedByPhotoId.set(afterPhoto.id, {
+        photoId: afterPhoto.id,
+        role: "after",
+        weeksAfter: afterPhoto.weeksAfter ?? null,
+        interventionLabel: mergedByPhotoId.get(afterPhoto.id)?.interventionLabel ?? null,
+        sortOrder: mergedByPhotoId.get(afterPhoto.id)?.sortOrder ?? mergedByPhotoId.size,
+      });
+
+      const normalized = Array.from(mergedByPhotoId.values()).map((entry, idx) => ({
+        ...entry,
+        sortOrder: idx,
+      }));
+
+      await storage.replaceStudyMembers(study.id, normalized);
+
+      await triggerStudyAnalysis(study.id, req.session.userId!);
+
+      res.json({ study, analysisStatus: getStudyAnalysisStatus(study.id) });
+    } catch (error) {
+      console.error("Error Converting Pair To Study:", error);
+      res.status(500).json({ error: "Failed To Convert Pair To Study" });
     }
   });
 
@@ -417,6 +905,370 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching stats:", error);
       res.status(500).json({ error: "Failed to fetch stats" });
+    }
+  });
+
+  /* --- Research cohort studies --- */
+
+  app.post("/api/studies", requireAuth, async (req, res) => {
+    try {
+      const title = typeof req.body?.title === "string" ? req.body.title : null;
+      const study = await storage.createStudy({
+        userId: req.session.userId!,
+        title,
+      });
+      res.json({ study });
+    } catch (error) {
+      console.error("Create study error:", error);
+      res.status(500).json({ error: "Failed to create study" });
+    }
+  });
+
+  app.get("/api/studies", requireAuth, async (req, res) => {
+    try {
+      const list = await storage.listStudies(req.session.userId!);
+      res.json({ studies: list });
+    } catch (error) {
+      console.error("List studies error:", error);
+      res.status(500).json({ error: "Failed to list studies" });
+    }
+  });
+
+  app.get("/api/studies/:id", requireAuth, async (req, res) => {
+    try {
+      const study = await storage.getStudyForUser(req.params.id, req.session.userId!);
+      if (!study) {
+        return res.status(404).json({ error: "Study not found" });
+      }
+      const members = await storage.getStudyPhotosWithPhotos(req.params.id);
+      const existingRows = await storage.getPairAnalysesForStudy(req.params.id);
+      const status = getStudyAnalysisStatus(req.params.id);
+      res.json({
+        study,
+        members,
+        analysisStatus:
+          status.state === "idle" && existingRows.length > 0
+            ? { ...status, state: "complete", analysisCount: existingRows.length }
+            : status,
+      });
+    } catch (error) {
+      console.error("Get study error:", error);
+      res.status(500).json({ error: "Failed to fetch study" });
+    }
+  });
+
+  app.delete("/api/studies/:id", requireAuth, async (req, res) => {
+    try {
+      const ok = await storage.deleteStudyForUser(req.params.id, req.session.userId!);
+      if (!ok) {
+        return res.status(404).json({ error: "Study not found" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Delete study error:", error);
+      res.status(500).json({ error: "Failed to delete study" });
+    }
+  });
+
+  const memberEntrySchema = z.object({
+    photoId: z.string().min(1),
+    role: z.enum(["before", "after"]),
+    weeksAfter: z.number().int().nullable().optional(),
+    interventionLabel: z.string().nullable().optional(),
+    sortOrder: z.number().int(),
+  });
+
+  app.put("/api/studies/:id/members", requireAuth, async (req, res) => {
+    try {
+      const study = await storage.getStudyForUser(req.params.id, req.session.userId!);
+      if (!study) {
+        return res.status(404).json({ error: "Study not found" });
+      }
+
+      const parsed = z
+        .object({
+          entries: z.array(memberEntrySchema).min(1),
+        })
+        .safeParse(req.body);
+
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid body", details: parsed.error.flatten() });
+      }
+
+      const userId = req.session.userId!;
+      for (const e of parsed.data.entries) {
+        const photo = await storage.getPhoto(e.photoId);
+        if (!photo || photo.userId !== userId) {
+          return res.status(400).json({ error: `Photo not found or access denied: ${e.photoId}` });
+        }
+      }
+
+      const beforeCount = parsed.data.entries.filter((e) => e.role === "before").length;
+      if (beforeCount !== 1) {
+        return res.status(400).json({ error: "Exactly one photo must have role \"before\"" });
+      }
+
+      await storage.replaceStudyMembers(
+        req.params.id,
+        parsed.data.entries.map((e) => ({
+          photoId: e.photoId,
+          role: e.role,
+          weeksAfter: e.weeksAfter ?? null,
+          interventionLabel: e.interventionLabel ?? null,
+          sortOrder: e.sortOrder,
+        })),
+      );
+
+      const members = await storage.getStudyPhotosWithPhotos(req.params.id);
+      res.json({ study, members });
+    } catch (error) {
+      console.error("Replace study members error:", error);
+      res.status(500).json({ error: "Failed to update study members" });
+    }
+  });
+
+  const batchItemSchema = z.object({
+    processedImageBase64: z.string(),
+    initials: z.string().min(1).max(3),
+    beforeAfter: z.enum(["before", "after"]),
+    locationCode: z.string().min(1).max(50),
+    weeksAfter: z.number().int().nullable().optional(),
+    interventionLabel: z.string().nullable().optional(),
+    sortOrder: z.number().int().optional(),
+  });
+
+  app.post("/api/studies/batch", requireAuth, async (req, res) => {
+    try {
+      const parsed = z
+        .object({
+          title: z.string().nullable().optional(),
+          items: z.array(batchItemSchema).min(2),
+        })
+        .safeParse(req.body);
+
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Invalid body", details: parsed.error.flatten() });
+      }
+
+      const beforeCount = parsed.data.items.filter((i) => i.beforeAfter === "before").length;
+      if (beforeCount !== 1) {
+        return res.status(400).json({ error: "Exactly one item must have beforeAfter \"before\"" });
+      }
+
+      const userId = req.session.userId!;
+      const study = await storage.createStudy({
+        userId,
+        title: parsed.data.title ?? null,
+      });
+
+      const memberEntries: Array<{
+        photoId: string;
+        role: string;
+        weeksAfter?: number | null;
+        interventionLabel?: string | null;
+        sortOrder: number;
+      }> = [];
+
+      for (let idx = 0; idx < parsed.data.items.length; idx++) {
+        const item = parsed.data.items[idx]!;
+        const standardizedImageBase64 = await standardizePhoto(item.processedImageBase64);
+        const demographics = await detectDemographics(standardizedImageBase64);
+
+        const photo = await storage.createPhoto({
+          userId,
+          processedImageUrl: `data:image/png;base64,${item.processedImageBase64}`,
+          processedImageBase64: item.processedImageBase64,
+          standardizedImageBase64,
+          initials: item.initials.toUpperCase(),
+          beforeAfter: item.beforeAfter,
+          locationCode: item.locationCode,
+          gender: demographics?.gender,
+          ageRange: demographics?.ageRange,
+          ethnicity: demographics?.ethnicity,
+          weeksAfter:
+            item.beforeAfter === "after"
+              ? item.weeksAfter ?? null
+              : null,
+        });
+
+        memberEntries.push({
+          photoId: photo.id,
+          role: item.beforeAfter === "before" ? "before" : "after",
+          weeksAfter: item.beforeAfter === "after" ? item.weeksAfter ?? null : null,
+          interventionLabel: item.beforeAfter === "after" ? item.interventionLabel ?? null : null,
+          sortOrder: item.sortOrder ?? idx,
+        });
+      }
+
+      await storage.replaceStudyMembers(study.id, memberEntries);
+      const members = await storage.getStudyPhotosWithPhotos(study.id);
+
+      res.status(201).json({ study, members });
+    } catch (error) {
+      console.error("Study batch error:", error);
+      res.status(500).json({ error: "Failed to create study batch" });
+    }
+  });
+
+  app.post("/api/studies/:id/analyze", requireAuth, async (req, res) => {
+    try {
+      const study = await storage.getStudyForUser(req.params.id, req.session.userId!);
+      if (!study) {
+        return res.status(404).json({ error: "Study not found" });
+      }
+
+      const status = await triggerStudyAnalysis(req.params.id, req.session.userId!);
+      res.status(202).json({
+        accepted: true,
+        analysisStatus: status,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Analysis failed";
+      console.error("Study analyze error:", error);
+      res.status(400).json({ error: message });
+    }
+  });
+
+  app.get("/api/studies/:id/analysis-status", requireAuth, async (req, res) => {
+    try {
+      const study = await storage.getStudyForUser(req.params.id, req.session.userId!);
+      if (!study) {
+        return res.status(404).json({ error: "Study not found" });
+      }
+      const rows = await storage.getPairAnalysesForStudy(req.params.id);
+      const status = getStudyAnalysisStatus(req.params.id);
+      res.json({
+        studyId: req.params.id,
+        analysisStatus:
+          status.state === "idle" && rows.length > 0
+            ? { ...status, state: "complete", analysisCount: rows.length }
+            : status,
+      });
+    } catch (error) {
+      console.error("Get analysis status error:", error);
+      res.status(500).json({ error: "Failed to fetch analysis status" });
+    }
+  });
+
+  app.get("/api/studies/:id/analysis", requireAuth, async (req, res) => {
+    try {
+      const study = await storage.getStudyForUser(req.params.id, req.session.userId!);
+      if (!study) {
+        return res.status(404).json({ error: "Study not found" });
+      }
+
+      const rows = await storage.getPairAnalysesForStudy(req.params.id);
+      res.json({ study, analyses: rows });
+    } catch (error) {
+      console.error("Get analysis error:", error);
+      res.status(500).json({ error: "Failed to fetch analyses" });
+    }
+  });
+
+  app.get("/api/studies/:id/cohort-stats", requireAuth, async (req, res) => {
+    try {
+      const study = await storage.getStudyForUser(req.params.id, req.session.userId!);
+      if (!study) {
+        return res.status(404).json({ error: "Study not found" });
+      }
+
+      const analyses = await storage.getPairAnalysesForStudy(req.params.id);
+      const interventionRows: InterventionRow[] = [];
+
+      for (const a of analyses) {
+        const meta = await storage.getStudyMemberByPhoto(req.params.id, a.afterPhotoId);
+        const metricsParse = pairMetricsSchema.safeParse(a.metrics);
+        if (!metricsParse.success) continue;
+
+        interventionRows.push({
+          afterPhotoId: a.afterPhotoId,
+          interventionLabel: meta?.interventionLabel ?? null,
+          weeksAfter: meta?.weeksAfter ?? null,
+          metrics: metricsParse.data,
+        });
+      }
+
+      const aggregates = aggregateByMetric(interventionRows);
+      const rankings = rankInterventions(interventionRows);
+
+      res.json({
+        study,
+        sampleSize: interventionRows.length,
+        aggregates,
+        interventionRankings: rankings,
+        pairs: interventionRows,
+      });
+    } catch (error) {
+      console.error("Cohort stats error:", error);
+      res.status(500).json({ error: "Failed to compute cohort stats" });
+    }
+  });
+
+  app.get("/api/studies/:id/export-bundle", requireAuth, async (req, res) => {
+    try {
+      const bundle = await buildStudyExportBundle(req.session.userId!, req.params.id);
+      const filename = `cohort-study-${req.params.id.slice(0, 8)}.json`;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.send(JSON.stringify(bundle, null, 2));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Export failed";
+      if (message === "Study not found") {
+        return res.status(404).json({ error: message });
+      }
+      console.error("Study export bundle error:", error);
+      res.status(500).json({ error: "Failed to export study bundle" });
+    }
+  });
+
+  app.get("/api/export/cohort-studies-bundle", requireAuth, async (req, res) => {
+    try {
+      const bundle = await buildAllStudiesExportBundle(req.session.userId!);
+      const filename = `cohort-studies-all-${new Date().toISOString().slice(0, 10)}.json`;
+      res.setHeader("Content-Type", "application/json; charset=utf-8");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.send(JSON.stringify(bundle, null, 2));
+    } catch (error) {
+      console.error("All cohort studies export error:", error);
+      res.status(500).json({ error: "Failed to export cohort studies bundle" });
+    }
+  });
+
+  app.get("/api/export/photos-cohort", requireAuth, async (req, res) => {
+    try {
+      const photoList = await storage.getPhotosByUserId(req.session.userId!);
+      const lines = [
+        [
+          "photo_id",
+          "initials",
+          "before_after",
+          "weeks_after",
+          "location_code",
+          "linked_photo_id",
+          "has_standardized_base64",
+        ].join(","),
+      ];
+
+      for (const p of photoList) {
+        lines.push(
+          [
+            p.id,
+            JSON.stringify(p.initials),
+            p.beforeAfter,
+            p.weeksAfter ?? "",
+            JSON.stringify(p.locationCode),
+            p.linkedPhotoId ?? "",
+            p.standardizedImageBase64 ? "yes" : "no",
+          ].join(","),
+        );
+      }
+
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", "attachment; filename=\"photos_cohort_export.csv\"");
+      res.send(lines.join("\n"));
+    } catch (error) {
+      console.error("Export error:", error);
+      res.status(500).json({ error: "Export failed" });
     }
   });
 

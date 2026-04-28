@@ -170,9 +170,13 @@ export default function ProcessingScreen() {
       console.error("Processing error:", error);
       setIsProcessing(false);
       hapticFeedback.error();
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Unable to process the image. Please try again.";
       Alert.alert(
         "Processing Failed",
-        "Unable to process the image. Please try again.",
+        message,
         [
           {
             text: "OK",
