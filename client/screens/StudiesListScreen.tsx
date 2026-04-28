@@ -1,5 +1,6 @@
 import React, { useCallback, useState } from "react";
 import { View, StyleSheet, Pressable, FlatList, ActivityIndicator, RefreshControl, Alert } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
@@ -25,7 +26,10 @@ interface StudyRow {
 export default function StudiesListScreen() {
   const { theme } = useTheme();
   const headerHeight = useHeaderHeight();
+  const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
+  /** Tab bar measured height excludes its bottom margin; match CameraScreen footer clearance above the floating pill. */
+  const footerBottomInset = tabBarHeight + insets.bottom + Spacing.lg + Spacing.sm;
   const navigation = useNavigation<NativeStackNavigationProp<ProfileStackParamList>>();
 
   const [exportingAll, setExportingAll] = useState(false);
@@ -52,9 +56,9 @@ export default function StudiesListScreen() {
         }
         contentContainerStyle={{
           paddingTop: headerHeight + Spacing.md,
-          paddingBottom: tabBarHeight + Spacing.xl + 140,
+          paddingBottom: footerBottomInset + Spacing.xl + 140,
           paddingHorizontal: Spacing.lg,
-          gap: Spacing.sm,
+          gap: Spacing.xs,
           flexGrow: 1,
         }}
         ListEmptyComponent={
@@ -94,7 +98,7 @@ export default function StudiesListScreen() {
         style={[
           styles.footer,
           {
-            paddingBottom: tabBarHeight + Spacing.md,
+            paddingBottom: footerBottomInset,
             backgroundColor: theme.backgroundRoot,
           },
         ]}

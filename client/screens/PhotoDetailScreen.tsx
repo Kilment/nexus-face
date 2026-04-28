@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useCallback } from "react";
 import {
   View,
   StyleSheet,
@@ -72,25 +72,7 @@ export default function PhotoDetailScreen() {
 
   const photo = data?.photo;
 
-  React.useLayoutEffect(() => {
-    galleryNav.setOptions({
-      headerRight: () => (
-        <View style={styles.headerChromeSide}>
-          <Pressable
-            onPress={handleDelete}
-            hitSlop={12}
-            style={styles.headerAction}
-            accessibilityRole="button"
-            accessibilityLabel="Delete photo"
-          >
-            <Feather name="trash-2" size={21} color={theme.error} />
-          </Pressable>
-        </View>
-      ),
-    });
-  }, [galleryNav, theme]);
-
-  const handleDelete = () => {
+  const handleDelete = useCallback(() => {
     hapticFeedback.warning();
     Alert.alert(
       "Delete Photo",
@@ -104,7 +86,45 @@ export default function PhotoDetailScreen() {
         },
       ]
     );
-  };
+  }, [deleteMutation]);
+
+  React.useLayoutEffect(() => {
+    if (Platform.OS === "ios") {
+      galleryNav.setOptions({
+        unstable_headerRightItems: () => [
+          {
+            type: "button",
+            label: "",
+            icon: {
+              type: "sfSymbol",
+              name: "trash.fill",
+            },
+            tintColor: theme.error,
+            onPress: handleDelete,
+            accessibilityLabel: "Delete photo",
+          },
+        ],
+      });
+    } else {
+      galleryNav.setOptions({
+        headerRight: () => (
+          <Pressable
+            onPress={handleDelete}
+            hitSlop={12}
+            style={({ pressed }) => [
+              styles.headerTrashBtn,
+              styles.headerTrashTrailing,
+              { opacity: pressed ? 0.65 : 1 },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Delete photo"
+          >
+            <Feather name="trash-2" size={21} color={theme.error} />
+          </Pressable>
+        ),
+      });
+    }
+  }, [galleryNav, theme, handleDelete]);
 
   const handleLink = () => {
     hapticFeedback.light();
@@ -420,15 +440,14 @@ const styles = StyleSheet.create({
     ...Typography.body,
     flex: 1,
   },
-  headerChromeSide: {
+  headerTrashBtn: {
+    height: 44,
+    width: 44,
     justifyContent: "center",
-    minHeight: 44,
-    paddingRight: Spacing.md,
-  },
-  headerAction: {
-    minHeight: 44,
-    minWidth: 44,
     alignItems: "center",
-    justifyContent: "center",
+    alignSelf: "center",
+  },
+  headerTrashTrailing: {
+    marginRight: Platform.OS === "ios" ? Spacing.sm : Spacing.md,
   },
 });

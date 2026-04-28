@@ -14,19 +14,25 @@ export function useScreenOptions({
   transparent = true,
 }: UseScreenOptionsParams = {}): NativeStackNavigationOptions {
   const { theme, isDark } = useTheme();
+  const isIos = Platform.OS === "ios";
 
   return {
     headerTitleAlign: "center",
     headerTransparent: transparent,
-    // Only apply iOS blur when header is transparent over content.
     headerBlurEffect: transparent ? (isDark ? "dark" : "light") : undefined,
     headerTintColor: "#FFFFFF",
-    // Custom `headerLeft` is the back control; do not supplement with the system back item
-    // (iOS would show an empty glass bubble when `headerBackVisible` is true but there is no back item).
-    headerBackVisible: false,
+    /**
+     * iOS: native UIBarButtonItem in the liquid-glass capsule centers itself.
+     * Custom JSX subtrees get wrapped by UIKit and any non-symmetric padding inside
+     * shifts the chevron/label off-center, so we let the system render the back button.
+     * Android: the JS wrapper handles consistent padding/safe-area for the back affordance.
+     */
+    headerBackVisible: isIos ? true : false,
     headerShadowVisible: false,
     headerLargeTitle: false,
-    headerLeft: (props) => React.createElement(PaddedHeaderBackButton, props),
+    headerLeft: isIos
+      ? undefined
+      : (props) => React.createElement(PaddedHeaderBackButton, props),
     headerStyle: {
       backgroundColor: Platform.select({
         ios: theme.backgroundRoot,

@@ -72,6 +72,8 @@ export default function ProfileScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<ProfileStackParamList>>();
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
+  /** Tab bar measured height excludes its bottom margin; match CameraScreen / StudiesList clearance above floating tab bar. */
+  const footerBottomInset = tabBarHeight + insets.bottom + Spacing.lg + Spacing.sm;
   const headerHeight = useHeaderHeight();
   const { theme, isDark } = useTheme();
   const { user, logout, setUser } = useAuth();
@@ -315,7 +317,7 @@ export default function ProfileScreen() {
           styles.content,
           {
             paddingTop: headerHeight + Spacing.lg,
-            paddingBottom: tabBarHeight + Spacing.xl,
+            paddingBottom: footerBottomInset + Spacing.xl,
           },
         ]}
         showsVerticalScrollIndicator={false}

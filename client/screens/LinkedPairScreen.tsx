@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import {
   View,
   StyleSheet,
@@ -8,6 +8,7 @@ import {
   Dimensions,
   Platform,
   Pressable,
+  Text,
 } from "react-native";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -238,7 +239,7 @@ export default function LinkedPairScreen() {
     },
   });
 
-  const handleUnlink = () => {
+  const handleUnlink = useCallback(() => {
     hapticFeedback.warning();
     Alert.alert(
       "Unlink Photos",
@@ -252,23 +253,51 @@ export default function LinkedPairScreen() {
         },
       ]
     );
-  };
+  }, [unlinkMutation]);
 
   React.useLayoutEffect(() => {
-    navigation.setOptions({
-      headerRight: () => (
-        <View style={{ paddingRight: Spacing.xl }}>
+    if (Platform.OS === "ios") {
+      /**
+       * Use native UIBarButtonItem mapping (liquid-glass aligns label with system chrome).
+       * JSX in ScreenStackHeaderRightView cannot match UIKit intrinsic padding.
+       */
+      navigation.setOptions({
+        unstable_headerRightItems: () => [
+          {
+            type: "button",
+            label: "Unlink",
+            labelStyle: {
+              fontSize: 17,
+              fontWeight: "600",
+              color: theme.error,
+            },
+            onPress: handleUnlink,
+            accessibilityLabel: "Unlink paired photos",
+          },
+        ],
+      });
+    } else {
+      navigation.setOptions({
+        headerRight: () => (
           <Pressable
             onPress={handleUnlink}
             hitSlop={12}
-            style={styles.headerAction}
+            style={({ pressed }) => [
+              styles.headerNavBtn,
+              styles.headerNavBtnTrailing,
+              { opacity: pressed ? 0.65 : 1 },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Unlink paired photos"
           >
-            <ThemedText style={{ color: theme.error }}>Unlink</ThemedText>
+            <View style={styles.headerNavInner}>
+              <Text style={[styles.headerNavLabelText, { color: theme.error }]}>Unlink</Text>
+            </View>
           </Pressable>
-        </View>
-      ),
-    });
-  }, [navigation, theme]);
+        ),
+      });
+    }
+  }, [navigation, theme, handleUnlink]);
 
   const cycleViewMode = () => {
     hapticFeedback.selection();
@@ -979,11 +1008,26 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: "rgba(128, 128, 128, 0.2)",
   },
-  headerAction: {
-    minHeight: 36,
-    minWidth: 64,
-    paddingHorizontal: Spacing.lg,
+  headerNavBtn: {
+    flexDirection: "column",
     justifyContent: "center",
     alignItems: "center",
+    height: 44,
+    paddingHorizontal: 14,
+    borderRadius: BorderRadius.full,
+    alignSelf: "center",
+  },
+  headerNavBtnTrailing: {
+    marginRight: Platform.OS === "ios" ? Spacing.sm : Spacing.md,
+  },
+  headerNavInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerNavLabelText: {
+    fontSize: 17,
+    fontWeight: "600",
+    lineHeight: Platform.OS === "ios" ? 20 : 22,
   },
 });

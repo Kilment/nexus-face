@@ -174,39 +174,41 @@ export default function StudyDetailScreen() {
             </ThemedText>
 
             <ThemedText style={[styles.section, { color: theme.textSecondary }]}>Members</ThemedText>
-            {members.map((m) => (
-              <GlassCard key={m.photo.id} style={styles.memberCard}>
-                <View style={styles.memberRow}>
-                  <Pressable
-                    onPress={() => {
-                      hapticFeedback.light();
-                      setActivePhotoUri(m.photo.processedImageUrl);
-                    }}
-                    accessibilityRole="button"
-                    accessibilityLabel={`View full photo for ${m.photo.initials}`}
-                    hitSlop={8}
-                  >
-                    <Image source={{ uri: m.photo.processedImageUrl }} style={styles.thumb} contentFit="cover" />
-                  </Pressable>
-                  <View style={{ flex: 1, gap: 4 }}>
-                    <ThemedText style={{ color: theme.text }}>
-                      {m.studyPhoto.role === "before" ? "Before" : "After"} · {m.photo.initials}
-                    </ThemedText>
-                    {m.studyPhoto.role === "after" && (
-                      <>
-                        <ThemedText style={{ color: theme.textSecondary, fontSize: 12 }}>
-                          Intervention: {m.studyPhoto.interventionLabel?.trim() || "—"}
-                        </ThemedText>
-                        <ThemedText style={{ color: theme.textSecondary, fontSize: 12 }}>
-                          Weeks After:{" "}
-                          {m.studyPhoto.weeksAfter ?? m.photo.weeksAfter ?? "—"}
-                        </ThemedText>
-                      </>
-                    )}
+            <View style={styles.membersStack}>
+              {members.map((m) => (
+                <GlassCard key={m.photo.id} style={styles.memberCard}>
+                  <View style={styles.memberRow}>
+                    <Pressable
+                      onPress={() => {
+                        hapticFeedback.light();
+                        setActivePhotoUri(m.photo.processedImageUrl);
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel={`View full photo for ${m.photo.initials}`}
+                      hitSlop={8}
+                    >
+                      <Image source={{ uri: m.photo.processedImageUrl }} style={styles.thumb} contentFit="cover" />
+                    </Pressable>
+                    <View style={{ flex: 1, gap: 4 }}>
+                      <ThemedText style={{ color: theme.text }}>
+                        {m.studyPhoto.role === "before" ? "Before" : "After"} · {m.photo.initials}
+                      </ThemedText>
+                      {m.studyPhoto.role === "after" && (
+                        <>
+                          <ThemedText style={{ color: theme.textSecondary, fontSize: 12 }}>
+                            Intervention: {m.studyPhoto.interventionLabel?.trim() || "—"}
+                          </ThemedText>
+                          <ThemedText style={{ color: theme.textSecondary, fontSize: 12 }}>
+                            Weeks After:{" "}
+                            {m.studyPhoto.weeksAfter ?? m.photo.weeksAfter ?? "—"}
+                          </ThemedText>
+                        </>
+                      )}
+                    </View>
                   </View>
-                </View>
-              </GlassCard>
-            ))}
+                </GlassCard>
+              ))}
+            </View>
 
             <GlassButton
               title={analyzeMutation.isPending || isRunning ? "Analyzing…" : "Run Cohort Analysis"}
@@ -278,6 +280,9 @@ const styles = StyleSheet.create({
     ...Typography.small,
     fontWeight: "600",
     marginTop: Spacing.sm,
+  },
+  membersStack: {
+    gap: Spacing.sm,
   },
   memberCard: {
     padding: Spacing.md,

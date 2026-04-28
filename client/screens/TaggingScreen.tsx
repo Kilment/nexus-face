@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import {
   View,
   StyleSheet,
@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Keyboard,
   Platform,
+  Text,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "expo-image";
@@ -45,56 +46,7 @@ export default function TaggingScreen() {
 
   const isFormValid = initials.length >= 2 && initials.length <= 3 && locationCode.length > 0;
 
-  React.useLayoutEffect(() => {
-    navigation.setOptions({
-      headerLeft: () => (
-        <Pressable
-          onPress={() => navigation.goBack()}
-          hitSlop={12}
-          style={({ pressed }) => [
-            styles.headerBtn,
-            styles.headerBtnLeading,
-            { opacity: pressed ? 0.65 : 1 },
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel="Cancel"
-        >
-          <ThemedText
-            style={[styles.headerBtnLabelBody, { color: theme.tabIconSelected }]}
-          >
-            Cancel
-          </ThemedText>
-        </Pressable>
-      ),
-      headerRight: () => (
-        <Pressable
-          onPress={handleSave}
-          disabled={!isFormValid || isSaving}
-          hitSlop={12}
-          style={({ pressed }) => [
-            styles.headerBtn,
-            styles.headerBtnTrailing,
-            { opacity: !isFormValid || isSaving ? 1 : pressed ? 0.65 : 1 },
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel="Save"
-        >
-          <ThemedText
-            style={[
-              styles.headerBtnLabelEmphasis,
-              {
-                color: isFormValid && !isSaving ? theme.tabIconSelected : theme.textTertiary,
-              },
-            ]}
-          >
-            Save
-          </ThemedText>
-        </Pressable>
-      ),
-    });
-  }, [navigation, isFormValid, isSaving, theme]);
-
-  const handleSave = async () => {
+  const handleSave = useCallback(async () => {
     if (!isFormValid || isSaving) return;
 
     Keyboard.dismiss();
@@ -114,16 +66,15 @@ export default function TaggingScreen() {
       if (popCount > 0) {
         navigation.dispatch(StackActions.pop(popCount));
       }
-      
-      // Navigate to Gallery tab after popping the modals
+
       const rootNav = navigation.getParent();
       if (rootNav) {
-        rootNav.navigate("Main", { 
+        rootNav.navigate("Main", {
           screen: "GalleryTab",
-          params: { 
+          params: {
             screen: "Gallery",
-            params: { scrollToTop: true }
-          }
+            params: { scrollToTop: true },
+          },
         });
       }
     } catch (error) {
@@ -132,7 +83,98 @@ export default function TaggingScreen() {
     } finally {
       setIsSaving(false);
     }
-  };
+  }, [
+    isFormValid,
+    isSaving,
+    navigation,
+    processedImageBase64,
+    beforeAfter,
+    locationCode,
+    weeksAfter,
+  ]);
+
+  React.useLayoutEffect(() => {
+    if (Platform.OS === "ios") {
+      navigation.setOptions({
+        unstable_headerLeftItems: () => [
+          {
+            type: "button",
+            label: "Cancel",
+            labelStyle: {
+              fontSize: 17,
+              fontWeight: "400",
+              color: theme.tabIconSelected,
+            },
+            onPress: () => navigation.goBack(),
+            accessibilityLabel: "Cancel",
+          },
+        ],
+        unstable_headerRightItems: () => [
+          {
+            type: "button",
+            label: "Save",
+            disabled: !isFormValid || isSaving,
+            labelStyle: {
+              fontSize: 17,
+              fontWeight: "600",
+              color: isFormValid && !isSaving ? theme.tabIconSelected : theme.textTertiary,
+            },
+            onPress: handleSave,
+            accessibilityLabel: "Save",
+          },
+        ],
+      });
+    } else {
+      navigation.setOptions({
+        headerLeft: () => (
+          <Pressable
+            onPress={() => navigation.goBack()}
+            hitSlop={12}
+            style={({ pressed }) => [
+              styles.headerBtn,
+              styles.headerBtnLeading,
+              { opacity: pressed ? 0.65 : 1 },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Cancel"
+          >
+            <View style={styles.headerBtnInner}>
+              <Text style={[styles.headerBtnLabelBody, { color: theme.tabIconSelected }]}>
+                Cancel
+              </Text>
+            </View>
+          </Pressable>
+        ),
+        headerRight: () => (
+          <Pressable
+            onPress={handleSave}
+            disabled={!isFormValid || isSaving}
+            hitSlop={12}
+            style={({ pressed }) => [
+              styles.headerBtn,
+              styles.headerBtnTrailing,
+              { opacity: !isFormValid || isSaving ? 1 : pressed ? 0.65 : 1 },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Save"
+          >
+            <View style={styles.headerBtnInner}>
+              <Text
+                style={[
+                  styles.headerBtnLabelEmphasis,
+                  {
+                    color: isFormValid && !isSaving ? theme.tabIconSelected : theme.textTertiary,
+                  },
+                ]}
+              >
+                Save
+              </Text>
+            </View>
+          </Pressable>
+        ),
+      });
+    }
+  }, [navigation, handleSave, isFormValid, isSaving, theme]);
 
   return (
     <ThemedView style={styles.container}>
@@ -362,13 +404,18 @@ const styles = StyleSheet.create({
    * alignSelf: center keeps the label visually centered vs the liquid-glass capsule on iOS.
    */
   headerBtn: {
-    height: 44,
-    minWidth: 52,
-    paddingHorizontal: 10,
-    borderRadius: BorderRadius.full,
+    flexDirection: "column",
     justifyContent: "center",
     alignItems: "center",
+    height: 44,
+    paddingHorizontal: 10,
+    borderRadius: BorderRadius.full,
     alignSelf: "center",
+  },
+  headerBtnInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
   },
   headerBtnLeading: {
     marginLeft: Platform.OS === "ios" ? Spacing.sm : Spacing.md,
@@ -379,13 +426,13 @@ const styles = StyleSheet.create({
   headerBtnLabelBody: {
     fontSize: 17,
     fontWeight: "400",
-    lineHeight: 22,
+    lineHeight: Platform.OS === "ios" ? 20 : 22,
     textAlign: "center",
   },
   headerBtnLabelEmphasis: {
     fontSize: 17,
     fontWeight: "600",
-    lineHeight: 22,
+    lineHeight: Platform.OS === "ios" ? 20 : 22,
     textAlign: "center",
   },
 });
