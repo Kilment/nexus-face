@@ -30,6 +30,10 @@ import { FilterChip } from "@/components/FilterChip";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius, Typography } from "@/constants/theme";
 import { hapticFeedback } from "@/lib/haptics";
+import {
+  PHOTO_TAG_FIELD_PRIVACY,
+  photoMetaKeyboardDismissOnDone,
+} from "@/lib/photo-meta-text-input";
 import type { GalleryStackParamList } from "@/navigation/GalleryStackNavigator";
 import type { Photo } from "@shared/schema";
 
@@ -152,6 +156,8 @@ export default function GalleryScreen() {
             >
               <Feather name="search" size={18} color={theme.textSecondary} />
               <TextInput
+                {...PHOTO_TAG_FIELD_PRIVACY}
+                {...photoMetaKeyboardDismissOnDone()}
                 style={[styles.searchInput, { color: theme.text }]}
                 value={searchQuery}
                 onChangeText={setSearchQuery}
@@ -177,6 +183,8 @@ export default function GalleryScreen() {
             >
               <Feather name="search" size={18} color={theme.textSecondary} />
               <TextInput
+                {...PHOTO_TAG_FIELD_PRIVACY}
+                {...photoMetaKeyboardDismissOnDone()}
                 style={[styles.searchInput, { color: theme.text }]}
                 value={searchQuery}
                 onChangeText={setSearchQuery}
@@ -230,6 +238,7 @@ export default function GalleryScreen() {
       ) : (
         <FlatList
           ref={flatListRef}
+          keyboardDismissMode="interactive"
           data={filteredPhotos}
           renderItem={renderPhoto}
           keyExtractor={(item) => item.id}

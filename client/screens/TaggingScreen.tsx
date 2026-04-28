@@ -6,6 +6,8 @@ import {
   Alert,
   TextInput,
   ActivityIndicator,
+  Keyboard,
+  Platform,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Image } from "expo-image";
@@ -14,7 +16,13 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
+import { IosNumericInputAccessory } from "@/components/IosNumericInputAccessory";
 import { useTheme } from "@/hooks/useTheme";
+import {
+  PHOTO_TAG_FIELD_PRIVACY,
+  photoMetaKeyboardDismissOnDone,
+  photoMetaNumericAccessoryId,
+} from "@/lib/photo-meta-text-input";
 import { Spacing, BorderRadius, Typography } from "@/constants/theme";
 import { apiRequest, queryClient } from "@/lib/query-client";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
@@ -40,38 +48,48 @@ export default function TaggingScreen() {
   React.useLayoutEffect(() => {
     navigation.setOptions({
       headerLeft: () => (
-        <View style={styles.headerChromeSide}>
-          <Pressable
-            onPress={() => navigation.goBack()}
-            hitSlop={12}
-            style={styles.headerAction}
-            accessibilityRole="button"
-            accessibilityLabel="Cancel"
+        <Pressable
+          onPress={() => navigation.goBack()}
+          hitSlop={12}
+          style={({ pressed }) => [
+            styles.headerBtn,
+            styles.headerBtnLeading,
+            { opacity: pressed ? 0.65 : 1 },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="Cancel"
+        >
+          <ThemedText
+            style={[styles.headerBtnLabelBody, { color: theme.tabIconSelected }]}
           >
-            <ThemedText style={{ color: theme.tabIconSelected }}>Cancel</ThemedText>
-          </Pressable>
-        </View>
+            Cancel
+          </ThemedText>
+        </Pressable>
       ),
       headerRight: () => (
-        <View style={[styles.headerChromeSide, styles.headerChromeSideEnd]}>
-          <Pressable
-            onPress={handleSave}
-            disabled={!isFormValid || isSaving}
-            hitSlop={12}
-            style={styles.headerAction}
-            accessibilityRole="button"
-            accessibilityLabel="Save"
-          >
-            <ThemedText
-              style={{
+        <Pressable
+          onPress={handleSave}
+          disabled={!isFormValid || isSaving}
+          hitSlop={12}
+          style={({ pressed }) => [
+            styles.headerBtn,
+            styles.headerBtnTrailing,
+            { opacity: !isFormValid || isSaving ? 1 : pressed ? 0.65 : 1 },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="Save"
+        >
+          <ThemedText
+            style={[
+              styles.headerBtnLabelEmphasis,
+              {
                 color: isFormValid && !isSaving ? theme.tabIconSelected : theme.textTertiary,
-                fontWeight: "600",
-              }}
-            >
-              Save
-            </ThemedText>
-          </Pressable>
-        </View>
+              },
+            ]}
+          >
+            Save
+          </ThemedText>
+        </Pressable>
       ),
     });
   }, [navigation, isFormValid, isSaving, theme]);
@@ -79,6 +97,7 @@ export default function TaggingScreen() {
   const handleSave = async () => {
     if (!isFormValid || isSaving) return;
 
+    Keyboard.dismiss();
     setIsSaving(true);
     try {
       await apiRequest("POST", "/api/photos", {
@@ -117,6 +136,7 @@ export default function TaggingScreen() {
 
   return (
     <ThemedView style={styles.container}>
+      <IosNumericInputAccessory tintColor={theme.tabIconSelected} />
       {isSaving && (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator size="large" color={theme.tabIconSelected} />
@@ -124,6 +144,7 @@ export default function TaggingScreen() {
         </View>
       )}
       <KeyboardAwareScrollViewCompat
+        keyboardDismissMode="interactive"
         contentContainerStyle={[
           styles.content,
           {
@@ -144,6 +165,8 @@ export default function TaggingScreen() {
           <View style={styles.inputGroup}>
             <ThemedText style={styles.label}>Initials</ThemedText>
             <TextInput
+              {...PHOTO_TAG_FIELD_PRIVACY}
+              {...photoMetaKeyboardDismissOnDone()}
               style={[
                 styles.input,
                 {
@@ -215,6 +238,8 @@ export default function TaggingScreen() {
           <View style={styles.inputGroup}>
             <ThemedText style={styles.label}>Location Code</ThemedText>
             <TextInput
+              {...PHOTO_TAG_FIELD_PRIVACY}
+              {...photoMetaKeyboardDismissOnDone()}
               style={[
                 styles.input,
                 {
@@ -235,6 +260,8 @@ export default function TaggingScreen() {
             <View style={styles.inputGroup}>
               <ThemedText style={styles.label}>Weeks After Intervention (Optional)</ThemedText>
               <TextInput
+                {...PHOTO_TAG_FIELD_PRIVACY}
+                {...photoMetaNumericAccessoryId()}
                 style={[
                   styles.input,
                   {
@@ -308,9 +335,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     justifyContent: "center",
     alignItems: "center",
+    ...(Platform.OS === "ios"
+      ? { alignSelf: "stretch", overflow: "hidden" }
+      : null),
   },
   segmentText: {
     ...Typography.button,
+    textAlign: "center",
+    lineHeight: 22,
+    ...(Platform.OS === "ios" ? { width: "100%" } : null),
   },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -324,23 +357,35 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontWeight: "600",
   },
-  headerChromeSide: {
-    justifyContent: "center",
-    minHeight: 44,
-    paddingLeft: Spacing.md,
-    paddingVertical: 0,
-  },
-  headerChromeSideEnd: {
-    paddingLeft: 0,
-    paddingRight: Spacing.md,
-  },
-  headerAction: {
-    minHeight: 36,
-    minWidth: 44,
-    paddingVertical: 6,
-    paddingHorizontal: 8,
+  /**
+   * Native stack header slots can vertically stretch children. Fixed height +
+   * alignSelf: center keeps the label visually centered vs the liquid-glass capsule on iOS.
+   */
+  headerBtn: {
+    height: 44,
+    minWidth: 52,
+    paddingHorizontal: 10,
     borderRadius: BorderRadius.full,
     justifyContent: "center",
     alignItems: "center",
+    alignSelf: "center",
+  },
+  headerBtnLeading: {
+    marginLeft: Platform.OS === "ios" ? Spacing.sm : Spacing.md,
+  },
+  headerBtnTrailing: {
+    marginRight: Platform.OS === "ios" ? Spacing.sm : Spacing.md,
+  },
+  headerBtnLabelBody: {
+    fontSize: 17,
+    fontWeight: "400",
+    lineHeight: 22,
+    textAlign: "center",
+  },
+  headerBtnLabelEmphasis: {
+    fontSize: 17,
+    fontWeight: "600",
+    lineHeight: 22,
+    textAlign: "center",
   },
 });

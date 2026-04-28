@@ -25,7 +25,11 @@ export default function ProfileStackNavigator() {
       <Stack.Screen
         name="Profile"
         component={ProfileScreen}
-        options={{ headerTitle: "Profile" }}
+        options={{
+          headerTitle: "Profile",
+          // Root of this stack — hide back; nested screens use useScreenOptions headerLeft via default.
+          headerLeft: () => null,
+        }}
       />
       <Stack.Screen
         name="StudiesList"

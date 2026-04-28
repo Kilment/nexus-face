@@ -46,6 +46,8 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 export default function CameraScreen() {
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
+  /** useBottomTabBarHeight is bar view height only; tab bar marginBottom (= bottom inset) is outside measurement — include both + breathing room above the pill. */
+  const bottomHudInset = tabBarHeight + insets.bottom + Spacing.lg + Spacing.sm;
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<NavigationProp>();
   const [facing, setFacing] = useState<CameraType>("front");
@@ -260,7 +262,7 @@ export default function CameraScreen() {
             styles.permissionContainer,
             {
               paddingTop: insets.top + Spacing.xl,
-              paddingBottom: tabBarHeight + Spacing.xl,
+              paddingBottom: tabBarHeight + insets.bottom + Spacing.xl,
             },
           ]}
         >
@@ -302,7 +304,7 @@ export default function CameraScreen() {
             styles.permissionContainer,
             {
               paddingTop: insets.top + Spacing.xl,
-              paddingBottom: tabBarHeight + Spacing.xl,
+              paddingBottom: tabBarHeight + insets.bottom + Spacing.xl,
             },
           ]}
         >
@@ -491,7 +493,7 @@ export default function CameraScreen() {
       <View
         style={[
           styles.bottomControls,
-          { paddingBottom: tabBarHeight + Spacing.lg },
+          { paddingBottom: bottomHudInset },
         ]}
       >
         <GlassIconButton

@@ -60,10 +60,31 @@ function CenteredTabBarButton(props: BottomTabBarButtonProps) {
 export default function MainTabNavigator() {
   const { isDark } = useTheme();
   const insets = useSafeAreaInsets();
+  /** Side/top float gap; bottom only uses device inset so the pill isn’t double-lifted above the home indicator. */
+  const floatMargin = Platform.select({ ios: 14, android: 16, web: 16 }) ?? 14;
+  const tabBarChrome = {
+    backgroundColor: "transparent",
+    marginHorizontal: floatMargin,
+    marginTop: floatMargin,
+    marginBottom: insets.bottom,
+    // Explicit symmetric padding — iOS can leave BottomTabBar’s bottom safe-area inset "stuck"; we clear that via safeAreaInsets.
+    paddingTop: 12,
+    paddingBottom: 12,
+    paddingHorizontal: TAB_BAR_INNER_PADDING_H + Math.max(insets.left, insets.right),
+    shadowOpacity: isDark ? 0.42 : 0.16,
+  };
 
   return (
     <Tab.Navigator
       initialRouteName="CameraTab"
+      // Floating pill uses marginBottom for home-indicator clearance; BottomTabBar’s internal paddingBottom: insets.bottom
+      // pushes tab row up on physical iPhones (web reports 0 inset so it looked centered there only).
+      safeAreaInsets={{
+        bottom: 0,
+        top: 0,
+        left: 0,
+        right: 0,
+      }}
       screenOptions={{
         tabBarActiveTintColor: isDark ? "#35A0FF" : "#0A84FF",
         tabBarInactiveTintColor: isDark ? "#D5DAE1" : "#A8AFB8",
@@ -71,14 +92,7 @@ export default function MainTabNavigator() {
         tabBarButton: (buttonProps) => <CenteredTabBarButton {...buttonProps} />,
         tabBarIconStyle: styles.tabBarIconWrap,
         tabBarItemStyle: styles.tabBarItem,
-        tabBarStyle: [
-          styles.tabBar,
-          {
-            paddingBottom: 6 + insets.bottom,
-            paddingHorizontal: TAB_BAR_INNER_PADDING_H + Math.max(insets.left, insets.right),
-            shadowOpacity: isDark ? 0.42 : 0.16,
-          },
-        ],
+        tabBarStyle: [styles.tabBar, tabBarChrome],
         tabBarBackground: () => (
           <View style={styles.tabBarBackground}>
             <BlurView intensity={95} tint={isDark ? "dark" : "light"} style={StyleSheet.absoluteFill} />
@@ -144,8 +158,7 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
     borderTopWidth: 0,
     elevation: 0,
-    height: Platform.select({ ios: 76, android: 74, web: 74 }),
-    margin: Platform.select({ ios: 14, android: 16, web: 16 }),
+    height: Platform.select({ ios: 72, android: 70, web: 70 }),
     borderRadius: 34,
     bottom: 0,
     overflow: "hidden",

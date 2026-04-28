@@ -7,6 +7,7 @@ import {
   TextInput,
   Alert,
   ActivityIndicator,
+  Keyboard,
 } from "react-native";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -22,6 +23,12 @@ import { GlassButton } from "@/components/GlassButton";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius, Typography } from "@/constants/theme";
 import { hapticFeedback } from "@/lib/haptics";
+import {
+  PHOTO_TAG_FIELD_PRIVACY,
+  photoMetaKeyboardDismissOnDone,
+  photoMetaNumericAccessoryId,
+} from "@/lib/photo-meta-text-input";
+import { IosNumericInputAccessory } from "@/components/IosNumericInputAccessory";
 import { apiRequest, queryClient } from "@/lib/query-client";
 import type { ProfileStackParamList } from "@/navigation/ProfileStackNavigator";
 
@@ -125,6 +132,7 @@ export default function StudyComposeScreen() {
 
   const createMutation = useMutation({
     mutationFn: async () => {
+      Keyboard.dismiss();
       if (selectedList.length < 2) {
         throw new Error("Select at least two photos");
       }
@@ -172,7 +180,9 @@ export default function StudyComposeScreen() {
 
   return (
     <ThemedView style={styles.container}>
+      <IosNumericInputAccessory tintColor={theme.tabIconSelected} />
       <ScrollView
+        keyboardDismissMode="interactive"
         contentContainerStyle={{
           paddingTop: headerHeight + Spacing.md,
           paddingBottom: tabBarHeight + Spacing["2xl"],
@@ -250,14 +260,23 @@ export default function StudyComposeScreen() {
                     {!isBefore && (
                       <>
                         <TextInput
+                          {...PHOTO_TAG_FIELD_PRIVACY}
+                          {...photoMetaNumericAccessoryId()}
                           placeholder="Weeks After Intervention"
                           placeholderTextColor={theme.textTertiary}
                           keyboardType="number-pad"
                           value={weeksById[p.id] ?? ""}
-                          onChangeText={(t) => setWeeksById((prev) => ({ ...prev, [p.id]: t }))}
+                          onChangeText={(t) =>
+                            setWeeksById((prev) => ({
+                              ...prev,
+                              [p.id]: t.replace(/[^0-9]/g, ""),
+                            }))
+                          }
                           style={[styles.smallInput, { color: theme.text, borderColor: theme.border }]}
                         />
                         <TextInput
+                          {...PHOTO_TAG_FIELD_PRIVACY}
+                          {...photoMetaKeyboardDismissOnDone()}
                           placeholder="Intervention Label"
                           placeholderTextColor={theme.textTertiary}
                           value={interventionById[p.id] ?? ""}

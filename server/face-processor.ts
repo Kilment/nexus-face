@@ -311,7 +311,8 @@ export async function processImageForFaceAnonymization(imageBase64: string): Pro
   
   const { landmarks, detection: faceDetection } = detection;
   const box = faceDetection.box;
-  const faceAreaRatio = (box.width * box.height) / (img.width * img.height);
+  // Landmark and box coords are in preprocess canvas pixel space — compare area to canvas, not full-res image.
+  const faceAreaRatio = (box.width * box.height) / (canvas.width * canvas.height);
   if (faceAreaRatio < MIN_FACE_AREA_RATIO) {
     console.warn("Detected face is too small. Falling back to deterministic center-based anonymization.");
     return fallbackAnonymizeWithoutFace(canvas);
@@ -343,11 +344,17 @@ export async function processImageForFaceAnonymization(imageBase64: string): Pro
   const outputWidth = Math.ceil(ovalWidth * 1.1);
   const outputHeight = Math.ceil(ovalHeight * 1.1);
   
-  const sourceX = Math.max(0, Math.min(faceCenterX - outputWidth / 2, img.width - outputWidth));
-  const sourceY = Math.max(0, Math.min(ovalCenterY - outputHeight / 2, img.height - outputHeight));
-  
-  const clampedWidth = Math.min(outputWidth, img.width - sourceX);
-  const clampedHeight = Math.min(outputHeight, img.height - sourceY);
+  const sourceX = Math.max(
+    0,
+    Math.min(faceCenterX - outputWidth / 2, canvas.width - outputWidth),
+  );
+  const sourceY = Math.max(
+    0,
+    Math.min(ovalCenterY - outputHeight / 2, canvas.height - outputHeight),
+  );
+
+  const clampedWidth = Math.min(outputWidth, canvas.width - sourceX);
+  const clampedHeight = Math.min(outputHeight, canvas.height - sourceY);
   
   const outputCanvas = createCanvas(clampedWidth, clampedHeight);
   const outputCtx = outputCanvas.getContext("2d");
