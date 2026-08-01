@@ -1,0 +1,37 @@
+{
+  "//": "Input format for scripts/standardize-cohort.ts. Copy to <photos-dir>/manifest.json and edit. One cohort per subject; exactly one photo with role 'before', one or more with role 'after'. relativePath is <folder>/<filename>. weeksAfter is metadata only — it does not affect scoring, so a 2-week and a 12-week follow-up are scored identically against the same baseline.",
+  "cohorts": [
+    {
+      "folder": "Patient01",
+      "studyTitle": "Example Study",
+      "initials": "AB",
+      "locationCode": "SITE1",
+      "photos": [
+        {
+          "role": "before",
+          "relativePath": "Patient01/pre.jpg"
+        },
+        {
+          "role": "after",
+          "relativePath": "Patient01/post_2wk.jpg",
+          "weeksAfter": 2
+        },
+        {
+          "role": "after",
+          "relativePath": "Patient01/post_12wk.jpg",
+          "weeksAfter": 12
+        }
+      ]
+    },
+    {
+      "folder": "Patient02",
+      "studyTitle": "Example Study",
+      "initials": "CD",
+      "locationCode": "SITE1",
+      "photos": [
+        { "role": "before", "relativePath": "Patient02/baseline.png" },
+        { "role": "after", "relativePath": "Patient02/followup.png", "weeksAfter": 2 }
+      ]
+    }
+  ]
+}

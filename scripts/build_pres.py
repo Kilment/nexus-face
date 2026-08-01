@@ -3,6 +3,7 @@ Build the SESPRS-style presentation summarizing the entire facial aging study.
 Replicates the navy/gold/cyan template extracted from the user's TIGR-ADM deck.
 """
 from __future__ import annotations
+import os
 from pathlib import Path
 
 from pptx import Presentation
@@ -26,11 +27,17 @@ WHITE = RGBColor(0xFF, 0xFF, 0xFF)
 
 FONT = "Calibri"
 
-OUT = Path(
-    "/sessions/keen-loving-planck/mnt/Facial Aging Study (PRS)/"
-    "Facial Aging Study Presentation.pptx"
-)
-FIG = Path("/sessions/keen-loving-planck/mnt/Facial Aging Study (PRS)/")
+# Previously hardcoded to one author's machine. See NEXUS_MANUSCRIPT_DIR.
+_out_env = os.environ.get("NEXUS_MANUSCRIPT_DIR")
+if not _out_env:
+    raise SystemExit(
+        "NEXUS_MANUSCRIPT_DIR is not set.\n"
+        "Point it at the directory holding the study figures, e.g.\n"
+        "  export NEXUS_MANUSCRIPT_DIR=~/facial-aging-study"
+    )
+FIG = Path(_out_env).expanduser()
+FIG.mkdir(parents=True, exist_ok=True)
+OUT = FIG / "Facial Aging Study Presentation.pptx"
 
 # 16:9 slide
 SLIDE_W = 13.333

@@ -31,6 +31,7 @@ yarn-error.*
 *.pem
 
 # local env files
+.env
 .env*.local
 
 # typescript
@@ -41,3 +42,24 @@ app-example
 # generated native folders
 /ios
 /android
+
+# ---------------------------------------------------------------------------
+# Patient data — never commit.
+#
+# Scored results carry subject identifiers (folder/MRN, initials, and dates of
+# service embedded in file paths). Standardized image dirs contain face images.
+# Both are PHI under HIPAA Safe Harbor even after de-identification, because
+# facial images are themselves an enumerated identifier.
+# ---------------------------------------------------------------------------
+scripts/results.csv
+scripts/logs/
+scripts/reference/validation-report.json
+*_standardized/
+_deid_qa/
+attached_assets/
+photos/
+Photos/
+*.phi.csv
+
+# macOS
+.DS_Store

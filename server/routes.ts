@@ -10,6 +10,7 @@ import { standardizePhoto } from "./photo-standardizer";
 import { insertPhotoSchema } from "@shared/schema";
 import { detectDemographics } from "./rekognition";
 import { analyzeStudy } from "./study-analysis";
+import { loadCohortReference } from "./cohort-reference";
 import { buildAllStudiesExportBundle, buildStudyExportBundle } from "./cohort-export";
 import {
   aggregateByMetric,
@@ -165,13 +166,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
 
     void analyzeStudy(studyId, userId)
-      .then((rows) => {
+      .then((result) => {
+        // Pairs that could not be scored are surfaced, not silently dropped:
+        // a study reporting "complete" with fewer rows than photos would
+        // otherwise look like a full result set.
+        const failureNote = result.failures.length
+          ? `${result.failures.length} pair(s) could not be scored: ` +
+            result.failures.map((f) => `${f.afterPhotoId.slice(0, 8)}: ${f.reason}`).join(" | ")
+          : null;
         analysisStatusByStudy.set(studyId, {
           state: "complete",
           startedAt,
           finishedAt: new Date().toISOString(),
-          error: null,
-          analysisCount: rows.length,
+          error: failureNote ?? result.scoringNotice,
+          analysisCount: result.rows.length,
         });
       })
       .catch((error) => {
@@ -494,9 +502,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         initials: initials.toUpperCase(),
         beforeAfter,
         locationCode,
-        gender: demographics?.gender,
-        ageRange: demographics?.ageRange,
-        ethnicity: demographics?.ethnicity,
+        gender: demographics.gender,
+        ageRange: demographics.ageRange,
         weeksAfter: beforeAfter === "after" ? (weeksAfter ? parseInt(weeksAfter.toString()) : null) : null,
       });
 
@@ -1008,9 +1015,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           initials: item.initials.toUpperCase(),
           beforeAfter: item.beforeAfter,
           locationCode: item.locationCode,
-          gender: demographics?.gender,
-          ageRange: demographics?.ageRange,
-          ethnicity: demographics?.ethnicity,
+          gender: demographics.gender,
+          ageRange: demographics.ageRange,
           weeksAfter:
             item.beforeAfter === "after"
               ? item.weeksAfter ?? null
@@ -1114,14 +1120,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      const { reference, loadError } = loadCohortReference();
       const aggregates = aggregateByMetric(interventionRows);
-      const rankings = rankInterventions(interventionRows);
+      const rankings = rankInterventions(interventionRows, reference);
 
       res.json({
         study,
         sampleSize: interventionRows.length,
         aggregates,
         interventionRankings: rankings,
+        scoringBasis: reference
+          ? {
+              referenceVersion: reference.referenceVersion,
+              sampleSize: reference.sampleSize,
+              rubricVersion: reference.rubricVersion,
+              preprocessingVersion: reference.preprocessingVersion,
+              modelId: reference.modelId,
+            }
+          : null,
+        scoringNotice: reference ? null : loadError,
         pairs: interventionRows,
       });
     } catch (error) {

@@ -79,31 +79,18 @@ The goal is to standardize photos for consistent medical/clinical comparison. Co
     if (jsonMatch) {
       return JSON.parse(jsonMatch[0]) as ImageAnalysis;
     }
-    
-    return {
-      brightness: "normal",
-      contrast: "normal",
-      zoom: "normal",
-      centering: "centered",
-      adjustments: {
-        brightnessAdjust: 0,
-        contrastAdjust: 0,
-        shouldCrop: false,
-      },
-    };
+    throw new Error("Image analysis returned no JSON object");
   } catch (error) {
-    console.error("Image analysis error:", error);
-    return {
-      brightness: "normal",
-      contrast: "normal",
-      zoom: "normal",
-      centering: "centered",
-      adjustments: {
-        brightnessAdjust: 0,
-        contrastAdjust: 0,
-        shouldCrop: false,
-      },
-    };
+    // Previously this swallowed the failure and returned "normal" defaults, so
+    // an image that never got AI-guided adjustment was still stamped with the
+    // canonical PREPROCESSING_VERSION. Two images in a pair could then be
+    // standardized under different regimes with nothing recording it, which
+    // silently invalidates comparison against the frozen cohort reference.
+    throw new Error(
+      "Photo standardization analysis failed; refusing to emit a non-canonically " +
+        "standardized image: " +
+        (error instanceof Error ? error.message : String(error)),
+    );
   }
 }
 

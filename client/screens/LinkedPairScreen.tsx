@@ -32,6 +32,7 @@ import { apiRequest, queryClient } from "@/lib/query-client";
 import { hapticFeedback } from "@/lib/haptics";
 import type { GalleryStackParamList } from "@/navigation/GalleryStackNavigator";
 import type { Photo } from "@shared/schema";
+import { formatDemographicsFull } from "@/lib/format-demographics";
 import { PhotoLightboxModal } from "@/components/PhotoLightboxModal";
 
 type NavigationProp = NativeStackNavigationProp<GalleryStackParamList>;
@@ -41,21 +42,49 @@ interface PhotoResponse {
   photo: Photo;
 }
 
+/** Null on any scored field means "not determinable" and renders as N/A. */
+interface DomainBreakdown {
+  raw: number | null;
+  z: number | null;
+  unavailableReason: string | null;
+}
+
+interface ImprovementScorePayload {
+  domains: {
+    age: DomainBreakdown;
+    wrinkles: DomainBreakdown;
+    volume: DomainBreakdown;
+    jawline: DomainBreakdown;
+  };
+  composite: number | null;
+  percentile: number | null;
+  unavailableReason: string | null;
+  reference: { referenceVersion: string; sampleSize: number } | null;
+}
+
 interface PairAnalysisResponse {
   analysis: {
     studyId: string;
     metrics: {
-      deltaPredictedFacialAge: number;
-      deltaSubclinicalWrinkles: number;
-      deltaWrinkles: number;
-      perceivedSkinFirmnessDelta: number;
-      perceivedDensityDelta: number;
-      perceivedFacialFullnessDelta: number;
-      perceivedGonialAngleDelta: number;
-      confidence?: number;
+      deltaPredictedFacialAge: number | null;
+      deltaSubclinicalWrinkles: number | null;
+      deltaWrinkles: number | null;
+      perceivedSkinFirmnessDelta: number | null;
+      perceivedDensityDelta: number | null;
+      perceivedFacialFullnessDelta: number | null;
+      perceivedGonialAngleDelta: number | null;
+      confidence?: number | null;
     };
+    improvementScore?: ImprovementScorePayload | null;
   };
 }
+
+const DOMAIN_LABELS: Array<{ key: keyof ImprovementScorePayload["domains"]; label: string }> = [
+  { key: "age", label: "Age" },
+  { key: "wrinkles", label: "Wrinkles" },
+  { key: "volume", label: "Volume" },
+  { key: "jawline", label: "Jawline" },
+];
 interface PairAnalysisStatusResponse {
   linked: boolean;
   studyId: string | null;
@@ -332,32 +361,45 @@ export default function LinkedPairScreen() {
   const beforePhoto = photo1.beforeAfter === "before" ? photo1 : photo2;
   const afterPhoto = photo1.beforeAfter === "after" ? photo1 : photo2;
 
-  const signed = (value: number, digits = 1) =>
-    `${value > 0 ? "+" : ""}${value.toFixed(digits)}`;
+  /** An undetermined value reads as N/A. It is never rendered as 0. */
+  const signed = (value: number | null | undefined, digits = 1, unit = "") => {
+    if (value === null || value === undefined || !Number.isFinite(value)) return "N/A";
+    return `${value > 0 ? "+" : ""}${value.toFixed(digits)}${unit}`;
+  };
 
   const activeDescriptor = METRIC_DESCRIPTORS.find((descriptor) => descriptor.key === activeMetric);
-  const activeValue = activeDescriptor && metrics ? metrics[activeDescriptor.key] : 0;
-  const activeIsPositive = activeValue > 0;
-  const activeDirectionText = activeDescriptor
-    ? activeDescriptor.betterWhen === "lower"
-      ? activeValue < 0
-        ? "Improved"
+  const rawActiveValue = activeDescriptor && metrics ? metrics[activeDescriptor.key] : null;
+  const activeValue =
+    rawActiveValue !== null && rawActiveValue !== undefined && Number.isFinite(rawActiveValue)
+      ? rawActiveValue
+      : null;
+  // A metric that could not be determined is distinct from one that measured
+  // no change; conflating them would report a result that was never obtained.
+  const activeDirectionText =
+    activeValue === null || !activeDescriptor
+      ? "Not Available"
+      : activeDescriptor.betterWhen === "lower"
+        ? activeValue < 0
+          ? "Improved"
+          : activeValue > 0
+            ? "Worsened"
+            : "No Change"
         : activeValue > 0
-          ? "Worsened"
-          : "No Change"
-      : activeValue > 0
-        ? "Improved"
-        : activeValue < 0
-          ? "Worsened"
-          : "No Change"
-    : "No Change";
+          ? "Improved"
+          : activeValue < 0
+            ? "Worsened"
+            : "No Change";
   const activeDirectionColor =
     activeDirectionText === "Improved"
       ? theme.success
       : activeDirectionText === "Worsened"
         ? theme.error
         : theme.textSecondary;
-  const activeMagnitudeWidth = `${Math.min(Math.abs(activeValue) * 20, 100)}%` as `${number}%`;
+  const activeMagnitudeWidth = `${
+    activeValue === null ? 0 : Math.min(Math.abs(activeValue) * 20, 100)
+  }%` as `${number}%`;
+
+  const improvement = pairAnalysisData?.analysis?.improvementScore ?? null;
 
   const renderSideBySide = () => (
     <View style={styles.sideBySideContainer}>
@@ -614,6 +656,68 @@ export default function LinkedPairScreen() {
           </GlassCard>
         ) : null}
 
+        {metrics ? (
+          <GlassCard style={styles.resultsCard}>
+            <ThemedText style={[styles.resultsEyebrow, { color: theme.textSecondary }]}>
+              Improvement Score
+            </ThemedText>
+
+            {improvement?.composite !== null && improvement?.composite !== undefined ? (
+              <>
+                <ThemedText style={[styles.resultsHeadline, { color: theme.tabIconSelected }]}>
+                  {signed(improvement.composite, 2)}
+                </ThemedText>
+                <ThemedText style={[styles.resultsSubhead, { color: theme.textTertiary }]}>
+                  {improvement.percentile !== null
+                    ? `${improvement.percentile.toFixed(0)}th percentile`
+                    : "Percentile N/A"}
+                  {improvement.reference
+                    ? ` · ref ${improvement.reference.referenceVersion} (n=${improvement.reference.sampleSize})`
+                    : ""}
+                </ThemedText>
+              </>
+            ) : (
+              <>
+                <ThemedText style={[styles.resultsHeadline, { color: theme.textSecondary }]}>
+                  N/A
+                </ThemedText>
+                <ThemedText style={[styles.metricDetailDescription, { color: theme.textSecondary }]}>
+                  {improvement?.unavailableReason ??
+                    "No frozen cohort reference is installed, so this pair cannot be standardized."}
+                </ThemedText>
+              </>
+            )}
+
+            <View style={styles.metricChipGrid}>
+              {DOMAIN_LABELS.map(({ key, label }) => {
+                const domain = improvement?.domains?.[key];
+                return (
+                  <View
+                    key={key}
+                    style={[
+                      styles.metricChip,
+                      { borderColor: "rgba(128, 128, 128, 0.2)", backgroundColor: "transparent" },
+                    ]}
+                  >
+                    <ThemedText style={[styles.metricChipLabel, { color: theme.textSecondary }]}>
+                      {label}
+                    </ThemedText>
+                    <ThemedText style={styles.metricChipValue}>
+                      {signed(domain?.z ?? null, 2)}
+                    </ThemedText>
+                  </View>
+                );
+              })}
+            </View>
+
+            <ThemedText style={[styles.metricDetailDescription, { color: theme.textSecondary }]}>
+              Domain z-scores against the frozen reference cohort. Positive = improvement.
+              Wrinkles is the mean of the seven anatomic sub-regions; the composite requires all
+              four domains.
+            </ThemedText>
+          </GlassCard>
+        ) : null}
+
         {!metrics ? (
           <GlassCard style={styles.analysisStatusCard}>
             <View style={styles.analysisStatusRow}>
@@ -681,20 +785,16 @@ export default function LinkedPairScreen() {
             <ThemedText style={styles.metadataValue}>{beforePhoto.locationCode}</ThemedText>
           </View>
 
-          {beforePhoto.gender || beforePhoto.ageRange || beforePhoto.ethnicity ? (
-            <>
-              <View style={styles.metadataDivider} />
-              <View style={styles.metadataRow}>
-                <Feather name="info" size={18} color={theme.textSecondary} />
-                <ThemedText style={[styles.metadataLabel, { color: theme.textSecondary }]}>
-                  Demographics
-                </ThemedText>
-                <ThemedText style={styles.metadataValue}>
-                  {beforePhoto.gender ? `${beforePhoto.gender.charAt(0)}` : ""}{beforePhoto.ageRange ? ` ${beforePhoto.ageRange}` : ""}{beforePhoto.ethnicity ? ` ${beforePhoto.ethnicity}` : ""}
-                </ThemedText>
-              </View>
-            </>
-          ) : null}
+          <View style={styles.metadataDivider} />
+          <View style={styles.metadataRow}>
+            <Feather name="info" size={18} color={theme.textSecondary} />
+            <ThemedText style={[styles.metadataLabel, { color: theme.textSecondary }]}>
+              Demographics
+            </ThemedText>
+            <ThemedText style={styles.metadataValue}>
+              {formatDemographicsFull(beforePhoto.gender, beforePhoto.ageRange)}
+            </ThemedText>
+          </View>
 
           {afterPhoto.weeksAfter !== null && afterPhoto.weeksAfter !== undefined ? (
             <>

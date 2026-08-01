@@ -1,5 +1,5 @@
-import * as faceapi from "@vladmandic/face-api";
-import * as tf from "@tensorflow/tfjs-node";
+import * as faceapi from "@vladmandic/face-api/dist/face-api.node-wasm.js";
+import { ensureTfBackend, tf } from "./tf-backend";
 import { createCanvas, loadImage, Canvas, Image } from "canvas";
 import * as path from "path";
 import * as fs from "fs";
@@ -36,7 +36,10 @@ faceapi.env.monkeyPatch({
 
 async function loadModels(): Promise<void> {
   if (modelsLoaded && cachedPipelineInfo) return;
-  
+
+  // The wasm backend must be live before any tensor op or model load.
+  await ensureTfBackend();
+
   const modelsPath = path.join(process.cwd(), "server", "models");
   
   if (!fs.existsSync(modelsPath)) {

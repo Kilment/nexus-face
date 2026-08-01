@@ -1,35 +1,42 @@
 """
-Score every BEFORE/AFTER pair in manifest.json with Claude using the same rubric
-as server/vision-rubric.ts, and append results to a CSV.
+Score every BEFORE/AFTER pair from a standardized cohort against the shared
+rubric, and append results to a CSV.
 
-Reproduces the app's `pairMetricsSchema` (see shared/cohort-metrics.ts) — same
-field names, same scales, same sign conventions — so the output is directly
-comparable to what the in-app pipeline produces with GPT-4o.
+This script no longer defines its own rubric or its own preprocessing. It reads
+shared/rubric.v1.1.json (the same file server/vision-rubric.ts reads) and
+consumes images already run through canonical preprocessing, so a batch score
+and an in-app score of the same pair are comparable.
 
-Usage:
-    export ANTHROPIC_API_KEY=sk-ant-...
-    python3 scripts/score_pairs.py \\
-        --photos-dir "/path/to/Photos" \\
-        --out scripts/results.csv
+Pipeline:
+    1. npx tsx scripts/standardize-cohort.ts \\
+           --photos-dir "/path/to/Photos" --out-dir "/path/to/Photos_std"
+    2. export ANTHROPIC_API_KEY=sk-ant-...
+       python3 scripts/score_pairs.py \\
+           --standardized-dir "/path/to/Photos_std" --out scripts/results.csv
+    3. python3 scripts/build_cohort_reference.py \\
+           --csv scripts/results.csv --out scripts/reference/cohort-reference.json
+    4. python3 scripts/compute_improvement_score.py \\
+           --csv scripts/results.csv --reference scripts/reference/cohort-reference.json
 
-    # Optional flags:
-    #   --model claude-sonnet-4-5         (default; override with any vision-capable Claude)
-    #   --concurrency 4                   (parallel API calls)
-    #   --limit 1                         (smoke-test on a single pair)
-    #   --dry-run                         (resolve files only, no API calls)
+Optional flags:
+    --model <id>        pinned dated snapshot (default below)
+    --concurrency 4     parallel API calls
+    --limit 1           smoke-test on a single pair
+    --replicates 3      score each pair N times and record the spread
+    --dry-run           resolve files only, no API calls
 
-The script is resumable: pairs already present in the CSV (keyed on
-beforePath + afterPath) are skipped on re-run.
+Resumable: pairs already present in the CSV (keyed on beforePath + afterPath)
+are skipped unless they recorded an error.
 """
 
 from __future__ import annotations
 
 import argparse
-import base64
 import csv
 import json
 import os
 import re
+import statistics
 import sys
 import threading
 import time
@@ -38,98 +45,34 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-# Lazy import so --dry-run works without anthropic installed.
-def _load_anthropic():
-    try:
-        import anthropic  # type: ignore
-        return anthropic
-    except ImportError:
-        sys.stderr.write(
-            "anthropic package not installed. Run: pip install --break-system-packages anthropic\n"
-        )
-        sys.exit(1)
+from nexus_pipeline import (
+    NOT_AVAILABLE,
+    PREPROCESSING_VERSION,
+    RUBRIC_PROMPT,
+    RUBRIC_VERSION,
+    SCALAR_FIELDS,
+    SUB_REGIONS,
+    USER_TURN_TEXT,
+    find_range_violations,
+    find_self_consistency_violations,
+    fmt,
+    harmonize_pair,
+    normalize_metrics,
+)
 
+SCRIPT_VERSION = "score_pairs.py v2.0"
 
-# ---------------------------------------------------------------------------
-# Rubric — extends server/vision-rubric.ts with absolute wrinkle scores and a
-# per-region anatomic breakdown so each pair yields directly comparable
-# before/after numbers per sub-region in addition to deltas.
-# ---------------------------------------------------------------------------
-RUBRIC_VERSION = "score_pairs.py rubric v1.1 (extends vision-rubric.ts@1.0)"
-SCRIPT_VERSION = "score_pairs.py v1.1"
+# Pinned dated snapshot. A floating alias silently re-points to a new model,
+# which shifts every score and invalidates the frozen cohort reference.
+DEFAULT_MODEL = "claude-sonnet-4-5-20250929"
 
-SUB_REGIONS = [
-    "crowsFeet",          # periorbital fine lines
-    "nasolabialFolds",    # cheek-to-mouth folds
-    "foreheadLines",      # horizontal forehead wrinkles
-    "glabellarLines",     # vertical lines between brows ("11s")
-    "perioralLines",      # vertical lip lines
-    "underEyeHollows",    # tear-trough / infraorbital hollowing
-    "jawlineLaxity",      # jowling / loss of mandibular definition
-]
+FLOATING_ALIAS = re.compile(r"^(claude-[a-z0-9.]+-\d(-\d)?|claude-\d[a-z-]*|.*-latest)$")
 
-RUBRIC_PROMPT = """You are assisting with exploratory research image comparison (not clinical diagnosis).
-Compare BEFORE (first image) vs AFTER (second image) standardized face portraits.
+METRIC_FIELDS = [*SCALAR_FIELDS, "confidence", "notes"]
 
-Score on these scales:
-- Predicted facial age (years): estimate independently for each image; delta = AFTER minus BEFORE.
-- Overall wrinkles AND subclinical (fine/early) wrinkle appearance: 0–100 severity per image (0 = none, 100 = severe); delta = AFTER minus BEFORE (negative = improvement).
-- Perceived skin firmness, density, facial fullness: each on −50..+50 delta where 0=no change, positive=better firmness/density/fullness appearance.
-- Perceived gonial (jaw) angle opening appearance: delta in approximate degrees (−10..+10).
-- Per anatomic sub-region (crowsFeet, nasolabialFolds, foreheadLines, glabellarLines, perioralLines, underEyeHollows, jawlineLaxity): rate each on 0–100 severity per image (0 = none, 100 = severe); delta = AFTER minus BEFORE (negative = improvement).
-- Confidence: 0..1 self-rated confidence in the comparison.
-
-Respond ONLY with valid JSON matching this TypeScript shape (numbers only for scored fields):
-{
-  "predictedFacialAgeBefore": number,
-  "predictedFacialAgeAfter": number,
-  "deltaPredictedFacialAge": number,
-  "wrinklesBefore": number,
-  "wrinklesAfter": number,
-  "deltaWrinkles": number,
-  "subclinicalWrinklesBefore": number,
-  "subclinicalWrinklesAfter": number,
-  "deltaSubclinicalWrinkles": number,
-  "perceivedSkinFirmnessDelta": number,
-  "perceivedDensityDelta": number,
-  "perceivedFacialFullnessDelta": number,
-  "perceivedGonialAngleDelta": number,
-  "subRegions": {
-    "crowsFeet":        { "before": number, "after": number, "delta": number },
-    "nasolabialFolds":  { "before": number, "after": number, "delta": number },
-    "foreheadLines":    { "before": number, "after": number, "delta": number },
-    "glabellarLines":   { "before": number, "after": number, "delta": number },
-    "perioralLines":    { "before": number, "after": number, "delta": number },
-    "underEyeHollows":  { "before": number, "after": number, "delta": number },
-    "jawlineLaxity":    { "before": number, "after": number, "delta": number }
-  },
-  "confidence": number,
-  "notes": string
-}"""
-
-# Top-level scored fields in the CSV (flat — sub-region fields are added below).
-METRIC_FIELDS = [
-    "predictedFacialAgeBefore",
-    "predictedFacialAgeAfter",
-    "deltaPredictedFacialAge",
-    "wrinklesBefore",
-    "wrinklesAfter",
-    "deltaWrinkles",
-    "subclinicalWrinklesBefore",
-    "subclinicalWrinklesAfter",
-    "deltaSubclinicalWrinkles",
-    "perceivedSkinFirmnessDelta",
-    "perceivedDensityDelta",
-    "perceivedFacialFullnessDelta",
-    "perceivedGonialAngleDelta",
-    "confidence",
-    "notes",
-]
-
-# Per-region columns: e.g. crowsFeetBefore, crowsFeetAfter, crowsFeetDelta
 SUBREGION_FIELDS: list[str] = []
-for r in SUB_REGIONS:
-    SUBREGION_FIELDS.extend([f"{r}Before", f"{r}After", f"{r}Delta"])
+for _r in SUB_REGIONS:
+    SUBREGION_FIELDS.extend([f"{_r}Before", f"{_r}After", f"{_r}Delta"])
 
 CSV_HEADER = [
     "studyTitle",
@@ -142,50 +85,34 @@ CSV_HEADER = [
     "weeksAfter",
     *METRIC_FIELDS,
     *SUBREGION_FIELDS,
+    # Provenance — a score is only comparable within matching provenance.
     "model",
+    "rubricVersion",
+    "preprocessingVersion",
+    "generativeDeIdUsed",
+    "replicates",
+    "replicateAgeSd",
     "scoredAt",
     "pipelineNotes",
+    "warnings",
     "error",
 ]
 
 
-# ---------------------------------------------------------------------------
-# File resolution — handles trailing whitespace in folder names and the
-# "01.20.23.jpeg" vs "1.20.23.jpeg" leading-zero variants we observed.
-# ---------------------------------------------------------------------------
-def build_folder_index(photos_dir: Path) -> dict[str, Path]:
-    """Map manifest folder name (stripped) → actual folder Path."""
-    idx: dict[str, Path] = {}
-    for entry in photos_dir.iterdir():
-        if entry.is_dir():
-            idx[entry.name.strip()] = entry
-    return idx
+def _load_anthropic():
+    try:
+        import anthropic  # type: ignore
 
-
-def resolve_photo_path(actual_folder: Path, relative_path: str) -> Optional[Path]:
-    """Try several spelling variants for the file inside its cohort folder."""
-    parts = relative_path.split("/", 1)
-    fname = parts[1] if len(parts) > 1 else relative_path
-    candidates = [
-        fname,
-        fname.strip(),
-    ]
-    # Day-component leading-zero variants: "01.20.23.jpeg" ↔ "1.20.23.jpeg"
-    m = re.match(r"^(\d{1,2})\.(\d{1,2})\.(\d{2,4})(\..+)$", fname.strip())
-    if m:
-        mm, dd, yy, ext = m.groups()
-        for mvar in {mm, mm.lstrip("0") or "0", mm.zfill(2)}:
-            for dvar in {dd, dd.lstrip("0") or "0", dd.zfill(2)}:
-                candidates.append(f"{mvar}.{dvar}.{yy}{ext}")
-    for c in candidates:
-        p = actual_folder / c
-        if p.is_file():
-            return p
-    return None
+        return anthropic
+    except ImportError:
+        sys.stderr.write(
+            "anthropic package not installed. Run: pip install --break-system-packages anthropic\n"
+        )
+        sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
-# Pair model
+# Pair model — built from the preprocessing manifest, not from raw folders.
 # ---------------------------------------------------------------------------
 @dataclass
 class Pair:
@@ -193,232 +120,186 @@ class Pair:
     folder: str
     initials: str
     locationCode: str
-    beforeRelative: str
-    afterRelative: str
     beforePath: Path
     afterPath: Path
     weeksAfter: Optional[int]
+    generativeDeIdUsed: bool
 
 
-def enumerate_pairs(manifest: dict, photos_dir: Path) -> tuple[list[Pair], list[dict]]:
-    """Return (resolved_pairs, skipped_records)."""
-    folder_idx = build_folder_index(photos_dir)
+def enumerate_pairs(standardized_dir: Path) -> tuple[list[Pair], list[dict], dict]:
+    manifest_path = standardized_dir / "preprocessing-manifest.json"
+    if not manifest_path.is_file():
+        sys.stderr.write(
+            f"No preprocessing manifest at {manifest_path}.\n"
+            "Run scripts/standardize-cohort.ts first — scoring raw photos would use "
+            "different preprocessing than the app and produce non-comparable results.\n"
+        )
+        sys.exit(1)
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    if manifest.get("preprocessingVersion") != PREPROCESSING_VERSION:
+        sys.stderr.write(
+            f"Preprocessing version mismatch: manifest is "
+            f"{manifest.get('preprocessingVersion')!r} but this script expects "
+            f"{PREPROCESSING_VERSION!r}. Re-run standardize-cohort.ts.\n"
+        )
+        sys.exit(1)
+
+    by_folder: dict[str, list[dict]] = {}
+    for record in manifest["records"]:
+        by_folder.setdefault(record["folder"], []).append(record)
+
     pairs: list[Pair] = []
-    skipped: list[dict] = []
+    skipped: list[dict] = list(manifest.get("skipped", []))
 
-    for cohort in manifest["cohorts"]:
-        folder_key = cohort["folder"].strip()
-        actual_folder = folder_idx.get(folder_key)
-        if actual_folder is None:
-            skipped.append({"folder": cohort["folder"], "reason": "folder_not_on_disk"})
+    for folder, records in by_folder.items():
+        before = next((r for r in records if r["role"] == "before"), None)
+        afters = [r for r in records if r["role"] == "after"]
+
+        if before is None:
+            skipped.append({"folder": folder, "reason": "no_before_photo"})
             continue
-
-        before = next((p for p in cohort["photos"] if p["role"] == "before"), None)
-        afters = [p for p in cohort["photos"] if p["role"] == "after"]
-        if not before:
-            skipped.append({"folder": cohort["folder"], "reason": "no_before_photo"})
-            continue
-
-        before_path = resolve_photo_path(actual_folder, before["relativePath"])
-        if before_path is None:
-            skipped.append(
-                {
-                    "folder": cohort["folder"],
-                    "relativePath": before["relativePath"],
-                    "reason": "before_file_missing",
-                }
-            )
+        if not afters:
+            skipped.append({"folder": folder, "reason": "no_after_photo"})
             continue
 
         for after in afters:
-            after_path = resolve_photo_path(actual_folder, after["relativePath"])
-            if after_path is None:
-                skipped.append(
-                    {
-                        "folder": cohort["folder"],
-                        "relativePath": after["relativePath"],
-                        "reason": "after_file_missing",
-                    }
-                )
-                continue
-
             pairs.append(
                 Pair(
-                    studyTitle=cohort.get("studyTitle", ""),
-                    folder=cohort["folder"],
-                    initials=cohort.get("initials", ""),
-                    locationCode=cohort.get("locationCode", ""),
-                    beforeRelative=before["relativePath"],
-                    afterRelative=after["relativePath"],
-                    beforePath=before_path,
-                    afterPath=after_path,
+                    studyTitle=before.get("studyTitle", ""),
+                    folder=folder,
+                    initials=before.get("initials", ""),
+                    locationCode=before.get("locationCode", ""),
+                    beforePath=Path(before["outputPath"]),
+                    afterPath=Path(after["outputPath"]),
                     weeksAfter=after.get("weeksAfter"),
+                    generativeDeIdUsed=bool(
+                        before.get("generativeDeIdUsed") or after.get("generativeDeIdUsed")
+                    ),
                 )
             )
 
-    return pairs, skipped
+    return pairs, skipped, manifest
 
 
 # ---------------------------------------------------------------------------
-# Scoring — calls Anthropic API with the same rubric the app uses.
+# Scoring
 # ---------------------------------------------------------------------------
-# Anthropic vision endpoint accepts up to 5 MB per image; base64 inflates raw bytes
-# by ~33%, so we cap raw payload at ~3.7 MB to stay under the limit safely.
-MAX_RAW_BYTES = 3_700_000
-INITIAL_LONG_EDGE = 1600  # px — plenty of detail for facial rubric scoring
-
-
-def encode_image(path: Path) -> tuple[str, str]:
-    """Return (media_type, base64), downscaling/recompressing if the file would
-    exceed Anthropic's 5 MB-per-image limit."""
-    raw = path.read_bytes()
-    ext = path.suffix.lower().lstrip(".")
-    media_type = {
-        "jpg": "image/jpeg",
-        "jpeg": "image/jpeg",
-        "png": "image/png",
-        "webp": "image/webp",
-        "gif": "image/gif",
-    }.get(ext, "image/jpeg")
-
-    if len(raw) <= MAX_RAW_BYTES:
-        return media_type, base64.standard_b64encode(raw).decode("ascii")
-
-    # Need to shrink. Always re-encode as JPEG quality 85, fitting within a
-    # progressively smaller long-edge until under the cap.
-    from PIL import Image  # local import keeps --dry-run light
-
-    img = Image.open(path)
-    if img.mode not in ("RGB", "L"):
-        img = img.convert("RGB")
-
-    long_edge = INITIAL_LONG_EDGE
-    quality = 85
-    for _ in range(8):
-        w, h = img.size
-        scale = long_edge / max(w, h)
-        if scale < 1:
-            resized = img.resize((max(1, int(w * scale)), max(1, int(h * scale))), Image.LANCZOS)
-        else:
-            resized = img
-        from io import BytesIO
-
-        buf = BytesIO()
-        resized.save(buf, format="JPEG", quality=quality, optimize=True)
-        data = buf.getvalue()
-        if len(data) <= MAX_RAW_BYTES:
-            return "image/jpeg", base64.standard_b64encode(data).decode("ascii")
-        # Tighten parameters and retry.
-        if quality > 60:
-            quality -= 10
-        else:
-            long_edge = max(640, int(long_edge * 0.8))
-    raise RuntimeError(f"Could not compress {path} below {MAX_RAW_BYTES} bytes")
-
-
 def extract_json(text: str) -> dict:
-    """Pull the first {...} JSON object out of the model's response."""
     m = re.search(r"\{[\s\S]*\}", text)
     if not m:
         raise ValueError(f"No JSON object found in response: {text[:300]!r}")
     return json.loads(m.group(0))
 
 
-def _coerce_number(v):
-    if isinstance(v, str):
-        try:
-            return float(v)
-        except ValueError:
-            return None
-    return v
-
-
-def normalize_metrics(raw: dict) -> dict:
-    """Coerce model output to the flat CSV shape (top-level + flattened sub-regions)."""
-    out: dict = {}
-    for k in METRIC_FIELDS:
-        v = raw.get(k)
-        if k == "notes":
-            out[k] = "" if v is None else str(v)
-            continue
-        v = _coerce_number(v)
-        if k == "confidence" and isinstance(v, (int, float)):
-            # Match vision-rubric.ts: clamp to 0..1, accept 0..100 percent inputs.
-            if v > 1:
-                v = v / 100.0
-            v = max(0.0, min(1.0, v))
-        out[k] = v
-
-    sub = raw.get("subRegions") or {}
-    for region in SUB_REGIONS:
-        block = sub.get(region) or {}
-        for suffix, jsonkey in (("Before", "before"), ("After", "after"), ("Delta", "delta")):
-            out[f"{region}{suffix}"] = _coerce_number(block.get(jsonkey))
-    return out
-
-
-def score_pair(client, model: str, pair: Pair, max_retries: int = 4) -> dict:
-    before_mt, before_b64 = encode_image(pair.beforePath)
-    after_mt, after_b64 = encode_image(pair.afterPath)
-
-    messages = [
-        {
-            "role": "user",
-            "content": [
-                {"type": "text", "text": "Image 1 is BEFORE. Image 2 is AFTER."},
-                {
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": before_mt,
-                        "data": before_b64,
+def score_once(client, model: str, before_b64: str, after_b64: str) -> tuple[dict, list[str]]:
+    """One scored attempt. Returns (metrics, warnings); raises on invalid output."""
+    resp = client.messages.create(
+        model=model,
+        max_tokens=1500,
+        temperature=0,
+        system=RUBRIC_PROMPT,
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": USER_TURN_TEXT},
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": before_b64,
+                        },
                     },
-                },
-                {
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": after_mt,
-                        "data": after_b64,
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": after_b64,
+                        },
                     },
-                },
-            ],
-        }
-    ]
+                ],
+            }
+        ],
+    )
 
+    raw_text = "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")
+    metrics = normalize_metrics(extract_json(raw_text))
+
+    # Out-of-scale values mean the rubric was ignored. Retry rather than clamp:
+    # clamping would manufacture a plausible number from an invalid response.
+    range_problems = find_range_violations(metrics)
+    if range_problems:
+        raise ValueError(f"Range violations: {'; '.join(range_problems)}")
+
+    return metrics, find_self_consistency_violations(metrics)
+
+
+def score_pair(
+    client,
+    model: str,
+    pair: Pair,
+    replicates: int,
+    max_retries: int = 4,
+) -> tuple[dict, list[str]]:
+    """
+    Score a pair, optionally several times. With replicates > 1 the per-field
+    median is reported and the age spread is recorded, so run-to-run
+    variability is visible instead of hidden behind a single sample.
+    """
+    before_b64, after_b64 = harmonize_pair(pair.beforePath, pair.afterPath)
+
+    runs: list[dict] = []
+    warnings: list[str] = []
     last_err: Optional[Exception] = None
-    for attempt in range(max_retries):
-        try:
-            resp = client.messages.create(
-                model=model,
-                max_tokens=1024,
-                temperature=0,
-                system=RUBRIC_PROMPT,
-                messages=messages,
-            )
-            text_blocks = [
-                b.text for b in resp.content if getattr(b, "type", None) == "text"
-            ]
-            raw_text = "".join(text_blocks)
-            parsed = extract_json(raw_text)
-            return normalize_metrics(parsed)
-        except Exception as e:  # noqa: BLE001
-            last_err = e
-            sleep_s = min(30, 2**attempt)
-            time.sleep(sleep_s)
-    raise RuntimeError(f"score_pair failed after {max_retries} attempts: {last_err}")
+
+    for _ in range(replicates):
+        for attempt in range(max_retries):
+            try:
+                metrics, consistency = score_once(client, model, before_b64, after_b64)
+                if consistency:
+                    if attempt < max_retries - 1:
+                        raise ValueError(f"Self-inconsistent: {'; '.join(consistency)}")
+                    warnings.append(
+                        f"self-consistency violations persisted: {'; '.join(consistency)}"
+                    )
+                runs.append(metrics)
+                break
+            except Exception as e:  # noqa: BLE001
+                last_err = e
+                time.sleep(min(30, 2**attempt))
+        else:
+            raise RuntimeError(f"score_pair failed after {max_retries} attempts: {last_err}")
+
+    if len(runs) == 1:
+        return runs[0], warnings
+
+    # Median across replicates, field by field, skipping N/A values.
+    merged: dict = {}
+    numeric_keys = [k for k in (*SCALAR_FIELDS, "confidence", *SUBREGION_FIELDS)]
+    for key in numeric_keys:
+        vals = [r[key] for r in runs if r.get(key) is not None]
+        merged[key] = statistics.median(vals) if vals else None
+    merged["notes"] = runs[0].get("notes", "")
+
+    ages = [r["deltaPredictedFacialAge"] for r in runs if r.get("deltaPredictedFacialAge") is not None]
+    merged["_replicateAgeSd"] = statistics.stdev(ages) if len(ages) > 1 else None
+
+    return merged, warnings
 
 
 # ---------------------------------------------------------------------------
-# CSV I/O — resumable.
+# CSV I/O — resumable
 # ---------------------------------------------------------------------------
 def load_done_keys(csv_path: Path) -> set[tuple[str, str]]:
     if not csv_path.exists():
         return set()
     done: set[tuple[str, str]] = set()
     with csv_path.open("r", newline="", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
+        for row in csv.DictReader(f):
             if row.get("error"):
                 continue  # let prior failures be retried
             key = (row.get("beforePath", ""), row.get("afterPath", ""))
@@ -429,7 +310,6 @@ def load_done_keys(csv_path: Path) -> set[tuple[str, str]]:
 
 def append_row(csv_path: Path, row: dict, lock: threading.Lock) -> None:
     with lock:
-        # Treat an absent OR empty file as needing a header.
         needs_header = (not csv_path.exists()) or csv_path.stat().st_size == 0
         with csv_path.open("a", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=CSV_HEADER, extrasaction="ignore")
@@ -438,25 +318,39 @@ def append_row(csv_path: Path, row: dict, lock: threading.Lock) -> None:
             writer.writerow(row)
 
 
-def pair_to_row(pair: Pair, metrics: Optional[dict], model: str, error: str = "") -> dict:
+def pair_to_row(
+    pair: Pair,
+    metrics: Optional[dict],
+    model: str,
+    replicates: int,
+    warnings: list[str],
+    error: str = "",
+) -> dict:
     row = {
         "studyTitle": pair.studyTitle,
         "folder": pair.folder,
         "initials": pair.initials,
         "locationCode": pair.locationCode,
-        "interventionLabel": "",  # populated by post-hoc CSV join with intervention sidecar
+        "interventionLabel": "",  # joined post-hoc from the intervention sidecar
         "beforePath": str(pair.beforePath),
         "afterPath": str(pair.afterPath),
-        "weeksAfter": "" if pair.weeksAfter is None else pair.weeksAfter,
+        "weeksAfter": NOT_AVAILABLE if pair.weeksAfter is None else pair.weeksAfter,
         "model": model,
+        "rubricVersion": RUBRIC_VERSION,
+        "preprocessingVersion": PREPROCESSING_VERSION,
+        "generativeDeIdUsed": "true" if pair.generativeDeIdUsed else "false",
+        "replicates": replicates,
+        "replicateAgeSd": fmt(metrics.get("_replicateAgeSd")) if metrics else NOT_AVAILABLE,
         "scoredAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "pipelineNotes": f"{RUBRIC_VERSION}; {SCRIPT_VERSION}; model={model}",
+        "pipelineNotes": f"rubric={RUBRIC_VERSION}; {SCRIPT_VERSION}; model={model}",
+        "warnings": "; ".join(warnings),
         "error": error,
     }
-    for k in METRIC_FIELDS:
-        row[k] = "" if not metrics else (metrics.get(k) if metrics.get(k) is not None else "")
-    for k in SUBREGION_FIELDS:
-        row[k] = "" if not metrics else (metrics.get(k) if metrics.get(k) is not None else "")
+
+    for key in (*SCALAR_FIELDS, "confidence", *SUBREGION_FIELDS):
+        row[key] = NOT_AVAILABLE if not metrics else fmt(metrics.get(key))
+    row["notes"] = "" if not metrics else str(metrics.get("notes", ""))
+
     return row
 
 
@@ -465,29 +359,54 @@ def pair_to_row(pair: Pair, metrics: Optional[dict], model: str, error: str = ""
 # ---------------------------------------------------------------------------
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--photos-dir", required=True, help="Folder containing manifest.json + cohort subfolders")
-    parser.add_argument("--manifest", default=None, help="Path to manifest.json (defaults to photos-dir/manifest.json)")
+    parser.add_argument(
+        "--standardized-dir",
+        required=True,
+        help="Output dir of scripts/standardize-cohort.ts (contains preprocessing-manifest.json)",
+    )
     parser.add_argument("--out", required=True, help="CSV output path")
-    parser.add_argument("--model", default=os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5"))
+    parser.add_argument("--model", default=os.environ.get("ANTHROPIC_MODEL", DEFAULT_MODEL))
     parser.add_argument("--concurrency", type=int, default=4)
-    parser.add_argument("--limit", type=int, default=None, help="Score at most N pairs (smoke test)")
+    parser.add_argument("--limit", type=int, default=None, help="Score at most N pairs")
+    parser.add_argument(
+        "--replicates",
+        type=int,
+        default=1,
+        help="Score each pair N times; reports per-field median and the age SD",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Resolve files only; no API calls")
     args = parser.parse_args()
 
-    photos_dir = Path(args.photos_dir).expanduser().resolve()
-    manifest_path = Path(args.manifest) if args.manifest else photos_dir / "manifest.json"
+    if FLOATING_ALIAS.match(args.model):
+        print(
+            f"WARNING: --model {args.model!r} looks like a floating alias. Scores will drift "
+            f"when it re-points. Pin a dated snapshot (e.g. {DEFAULT_MODEL!r}) and rebuild "
+            "the cohort reference.",
+            file=sys.stderr,
+        )
+
+    standardized_dir = Path(args.standardized_dir).expanduser().resolve()
     out_path = Path(args.out).expanduser().resolve()
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    manifest = json.loads(manifest_path.read_text())
-    pairs, skipped = enumerate_pairs(manifest, photos_dir)
+    pairs, skipped, manifest = enumerate_pairs(standardized_dir)
 
-    print(f"Manifest: {manifest_path}")
-    print(f"Photos dir: {photos_dir}")
-    print(f"Resolved pairs: {len(pairs)}")
-    print(f"Skipped (missing files/folders): {len(skipped)}")
+    print(f"Standardized dir: {standardized_dir}")
+    print(f"Preprocessing:    {manifest['preprocessingVersion']}")
+    print(f"Rubric:           {RUBRIC_VERSION}")
+    print(f"Model:            {args.model}")
+    print(f"Resolved pairs:   {len(pairs)}")
+    print(f"Skipped:          {len(skipped)}")
     for s in skipped:
         print(f"  SKIP {s}")
+
+    generative = [p for p in pairs if p.generativeDeIdUsed]
+    if generative:
+        print(
+            f"\nWARNING: {len(generative)} pair(s) include a generatively de-identified image. "
+            "Their scores describe synthesized pixels, not the patient, and should be excluded "
+            "from the cohort reference."
+        )
 
     if args.limit is not None:
         pairs = pairs[: args.limit]
@@ -495,8 +414,8 @@ def main() -> int:
 
     done_keys = load_done_keys(out_path)
     todo = [p for p in pairs if (str(p.beforePath), str(p.afterPath)) not in done_keys]
-    print(f"Already scored in CSV: {len(pairs) - len(todo)}")
-    print(f"To score this run: {len(todo)}")
+    print(f"Already scored:   {len(pairs) - len(todo)}")
+    print(f"To score now:     {len(todo)}")
 
     if args.dry_run:
         print("Dry run — exiting before API calls.")
@@ -505,6 +424,7 @@ def main() -> int:
     if not os.environ.get("ANTHROPIC_API_KEY"):
         sys.stderr.write("ANTHROPIC_API_KEY env var not set\n")
         return 1
+
     anthropic = _load_anthropic()
     client = anthropic.Anthropic()
 
@@ -512,28 +432,32 @@ def main() -> int:
     success = 0
     failed = 0
 
-    def work(pair: Pair) -> tuple[Pair, Optional[dict], str]:
+    def work(pair: Pair):
         try:
-            metrics = score_pair(client, args.model, pair)
-            return pair, metrics, ""
+            metrics, warnings = score_pair(client, args.model, pair, args.replicates)
+            return pair, metrics, warnings, ""
         except Exception as e:  # noqa: BLE001
-            return pair, None, str(e)
+            return pair, None, [], str(e)
 
     with ThreadPoolExecutor(max_workers=max(1, args.concurrency)) as ex:
         futures = [ex.submit(work, p) for p in todo]
         for i, fut in enumerate(as_completed(futures), 1):
-            pair, metrics, err = fut.result()
-            row = pair_to_row(pair, metrics, args.model, error=err)
-            append_row(out_path, row, write_lock)
+            pair, metrics, warnings, err = fut.result()
+            append_row(
+                out_path,
+                pair_to_row(pair, metrics, args.model, args.replicates, warnings, error=err),
+                write_lock,
+            )
             if err:
                 failed += 1
-                print(f"[{i}/{len(todo)}] FAIL {pair.folder} after={pair.afterRelative}: {err}")
+                print(f"[{i}/{len(todo)}] FAIL {pair.folder} {pair.afterPath.name}: {err}")
             else:
                 success += 1
+                warn = f"  ! {'; '.join(warnings)}" if warnings else ""
                 print(
-                    f"[{i}/{len(todo)}] OK   {pair.folder} after={pair.afterRelative} "
-                    f"ΔAge={metrics.get('deltaPredictedFacialAge')} "
-                    f"ΔWrinkles={metrics.get('deltaWrinkles')}"
+                    f"[{i}/{len(todo)}] OK   {pair.folder} {pair.afterPath.name} "
+                    f"ΔAge={fmt(metrics.get('deltaPredictedFacialAge'), 1)} "
+                    f"ΔWrinkles={fmt(metrics.get('deltaWrinkles'), 1)}{warn}"
                 )
 
     print(f"\nDone. success={success} failed={failed} csv={out_path}")
@@ -541,4 +465,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

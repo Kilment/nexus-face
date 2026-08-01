@@ -4,10 +4,17 @@ import {
   rankInterventions,
   type InterventionRow,
 } from "./cohort-stats";
+import { loadCohortReference } from "./cohort-reference";
 import { pairMetricsSchema } from "@shared/cohort-metrics";
 import type { Photo } from "@shared/schema";
 
-/** Label + demographics + timing role (before/after). No image URLs or base64. */
+/**
+ * Label + demographics + timing role (before/after). No image URLs or base64.
+ *
+ * Null on a demographic field means it was not determined. Consumers must
+ * render N/A; there is no default to fall back to. Ethnicity is absent by
+ * design — see migrations/0002_drop_fabricated_ethnicity.sql.
+ */
 function exportPhotoSlot(photoId: string, lookup: Photo | undefined): {
   locationCode: string | null;
   shortId: string;
@@ -16,7 +23,6 @@ function exportPhotoSlot(photoId: string, lookup: Photo | undefined): {
     initials: string | null;
     gender: string | null;
     ageRange: string | null;
-    ethnicity: string | null;
   };
 } {
   const shortId = photoId.slice(0, 8);
@@ -24,7 +30,6 @@ function exportPhotoSlot(photoId: string, lookup: Photo | undefined): {
     initials: null as string | null,
     gender: null as string | null,
     ageRange: null as string | null,
-    ethnicity: null as string | null,
   };
   if (!lookup) {
     return {
@@ -42,7 +47,6 @@ function exportPhotoSlot(photoId: string, lookup: Photo | undefined): {
       initials: lookup.initials ?? null,
       gender: lookup.gender ?? null,
       ageRange: lookup.ageRange ?? null,
-      ethnicity: lookup.ethnicity ?? null,
     },
   };
 }
@@ -105,8 +109,9 @@ export async function buildStudyExportBundle(userId: string, studyId: string) {
     });
   }
 
+  const { reference, loadError } = loadCohortReference();
   const aggregates = aggregateByMetric(interventionRows);
-  const interventionRankings = rankInterventions(interventionRows);
+  const interventionRankings = rankInterventions(interventionRows, reference);
 
   const pairwiseMetrics = analyses.map((row) => {
     const parsed = pairMetricsSchema.safeParse(row.metrics);
@@ -120,12 +125,25 @@ export async function buildStudyExportBundle(userId: string, studyId: string) {
       ),
       metrics: parsed.success ? parsed.data : row.metrics,
       landmarkMetrics: row.landmarkMetrics ?? null,
+      provenance: row.provenance ?? null,
+      improvementScore: row.improvementScore ?? null,
     };
   });
 
   return {
-    exportVersion: "2.1.0",
+    exportVersion: "3.0.0",
     exportedAt: new Date().toISOString(),
+    /** What every score in this bundle was produced against. */
+    scoringBasis: reference
+      ? {
+          referenceVersion: reference.referenceVersion,
+          sampleSize: reference.sampleSize,
+          rubricVersion: reference.rubricVersion,
+          preprocessingVersion: reference.preprocessingVersion,
+          modelId: reference.modelId,
+        }
+      : null,
+    scoringNotice: reference ? null : loadError,
     study: {
       id: study.id,
       title: study.title,
@@ -161,7 +179,7 @@ export async function buildAllStudiesExportBundle(userId: string) {
     }
   }
   return {
-    exportVersion: "2.1.0",
+    exportVersion: "3.0.0",
     exportedAt: new Date().toISOString(),
     scope: "all-cohort-studies",
     studyCount: bundles.length,

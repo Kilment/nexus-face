@@ -22,9 +22,10 @@ import { pairMetricsSchema, type PairMetrics } from "@shared/cohort-metrics";
 export interface UserStats {
   totalPhotos: number;
   linkedPairs: number;
-  averageDeltaPredictedAge: number;
-  averageDeltaWrinkles: number;
-  averagePerceivedFirmnessDelta: number;
+  /** Null when no pair contributed a value — renders as N/A, never as 0. */
+  averageDeltaPredictedAge: number | null;
+  averageDeltaWrinkles: number | null;
+  averagePerceivedFirmnessDelta: number | null;
   recentPairs: Array<{
     beforePhoto: Photo;
     afterPhoto: Photo;
@@ -186,10 +187,17 @@ export class DatabaseStorage implements IStorage {
     }
 
     const linkedCount = metricRows.length;
-    const avg = (selector: (m: PairMetrics) => number) =>
-      metricRows.length
-        ? metricRows.reduce((sum, m) => sum + selector(m), 0) / metricRows.length
-        : 0;
+
+    // Null, not 0, when nothing contributed: a 0 average reads as "measured, no
+    // change" when the truth is "nothing to measure". Pairs whose value is N/A
+    // are excluded from the denominator rather than counted as zero.
+    const avg = (selector: (m: PairMetrics) => number | null): number | null => {
+      const values = metricRows
+        .map(selector)
+        .filter((v): v is number => v !== null && Number.isFinite(v));
+      if (values.length === 0) return null;
+      return values.reduce((sum, v) => sum + v, 0) / values.length;
+    };
 
     return {
       totalPhotos: allPhotos.length,

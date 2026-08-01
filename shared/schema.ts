@@ -36,9 +36,11 @@ export const photos = pgTable("photos", {
   beforeAfter: varchar("before_after", { length: 10 }).notNull(),
   locationCode: varchar("location_code", { length: 50 }).notNull(),
   linkedPhotoId: varchar("linked_photo_id"),
+  // Null on either field means "not determined" and renders as N/A.
+  // There is deliberately no ethnicity column: DetectFaces does not return
+  // race, so any stored value would be fabricated rather than detected.
   gender: varchar("gender", { length: 20 }),
   ageRange: varchar("age_range", { length: 20 }),
-  ethnicity: varchar("ethnicity", { length: 50 }),
   weeksAfter: integer("weeks_after"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -94,6 +96,10 @@ export const pairAnalysis = pgTable(
     modelId: varchar("model_id", { length: 128 }).notNull(),
     metrics: jsonb("metrics").notNull(),
     landmarkMetrics: jsonb("landmark_metrics"),
+    /** Rubric/preprocessing/model provenance — a score is only comparable within matching provenance. */
+    provenance: jsonb("provenance"),
+    /** Domain z-scores, composite and percentile against the frozen reference. Null fields mean N/A. */
+    improvementScore: jsonb("improvement_score"),
     rawArtifact: text("raw_artifact"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
@@ -171,7 +177,6 @@ export const insertPhotoSchema = createInsertSchema(photos).pick({
   linkedPhotoId: true,
   gender: true,
   ageRange: true,
-  ethnicity: true,
   weeksAfter: true,
 });
 
@@ -197,6 +202,8 @@ export const insertPairAnalysisSchema = createInsertSchema(pairAnalysis).pick({
   modelId: true,
   metrics: true,
   landmarkMetrics: true,
+  provenance: true,
+  improvementScore: true,
   rawArtifact: true,
 });
 

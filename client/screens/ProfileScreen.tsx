@@ -35,6 +35,7 @@ import { apiRequest, queryClient } from "@/lib/query-client";
 import { ScrollView } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { NOT_AVAILABLE } from "@/lib/format-demographics";
 import type { ProfileStackParamList } from "@/navigation/ProfileStackNavigator";
 
 interface PhotoPair {
@@ -50,19 +51,19 @@ interface PhotoPair {
     initials: string;
   };
   metrics: {
-    deltaPredictedFacialAge: number;
-    deltaWrinkles: number;
-    perceivedSkinFirmnessDelta: number;
-    confidence?: number;
+    deltaPredictedFacialAge: number | null;
+    deltaWrinkles: number | null;
+    perceivedSkinFirmnessDelta: number | null;
+    confidence?: number | null;
   };
 }
 
 interface UserStats {
   totalPhotos: number;
   linkedPairs: number;
-  averageDeltaPredictedAge: number;
-  averageDeltaWrinkles: number;
-  averagePerceivedFirmnessDelta: number;
+  averageDeltaPredictedAge: number | null;
+  averageDeltaWrinkles: number | null;
+  averagePerceivedFirmnessDelta: number | null;
   recentPairs: PhotoPair[];
 }
 
@@ -221,9 +222,15 @@ export default function ProfileScreen() {
     );
   };
 
-  const formatSigned = (value: number, digits = 1) => {
-    const rounded = Number.isFinite(value) ? value.toFixed(digits) : "0.0";
-    return `${value > 0 ? "+" : ""}${rounded}`;
+  /**
+   * An undetermined value reads as N/A. It is never rendered as 0.0, and the
+   * unit is dropped with it so nothing reads as "N/AY".
+   */
+  const formatSigned = (value: number | null | undefined, digits = 1, unit = "") => {
+    if (value === null || value === undefined || !Number.isFinite(value)) {
+      return NOT_AVAILABLE;
+    }
+    return `${value > 0 ? "+" : ""}${value.toFixed(digits)}${unit}`;
   };
 
   const navigateFromRecentComparison = React.useCallback(
@@ -300,7 +307,7 @@ export default function ProfileScreen() {
             {pair.beforePhoto.initials}
           </ThemedText>
           <ThemedText style={[styles.pairScore, { color: theme.tabIconSelected }]}>
-            ΔAge {formatSigned(pair.metrics.deltaPredictedFacialAge)}Y
+            ΔAge {formatSigned(pair.metrics.deltaPredictedFacialAge, 1, "Y")}
           </ThemedText>
           <ThemedText style={[styles.pairConfidence, { color: theme.textTertiary }]}>
             ΔWrinkles {formatSigned(pair.metrics.deltaWrinkles)} · Firmness {formatSigned(pair.metrics.perceivedSkinFirmnessDelta)}
@@ -433,7 +440,7 @@ export default function ProfileScreen() {
               </View>
               {stats.linkedPairs > 0 ? (
                 <View style={styles.statsGrid}>
-                  {renderStatCard("Avg ΔAge", `${formatSigned(stats.averageDeltaPredictedAge)}Y`, "clock", true)}
+                  {renderStatCard("Avg ΔAge", formatSigned(stats.averageDeltaPredictedAge, 1, "Y"), "clock", true)}
                   {renderStatCard("Avg ΔWrk", formatSigned(stats.averageDeltaWrinkles), "activity")}
                 </View>
               ) : null}

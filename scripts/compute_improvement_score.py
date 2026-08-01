@@ -1,48 +1,54 @@
 """
-Compute a standardized per-pair improvement score from the rubric output in
-results.csv and append it back to the same file.
+Append standardized improvement scores to a scored results CSV.
 
-Algorithm:
-  1. Polarity-flip every severity metric so positive = improvement everywhere.
-  2. Aggregate into four clinical domains:
+Algorithm (identical to shared/improvement-score.ts — do not fork one without
+the other):
+
+  1. Build four clinical domains, positive = improvement everywhere:
        Age      = -deltaPredictedFacialAge
-       Wrinkles = mean of the 7 sub-region deltas, sign-flipped
+       Wrinkles = mean of the 7 SUB-REGION deltas, sign-flipped
                   (crowsFeet, nasolabialFolds, foreheadLines, glabellarLines,
                    perioralLines, underEyeHollows, jawlineLaxity)
        Volume   = mean of perceivedSkinFirmnessDelta,
                           perceivedDensityDelta,
                           perceivedFacialFullnessDelta
        Jawline  = mean of -jawlineLaxityDelta and perceivedGonialAngleDelta
-  3. Cohort-standardize each domain via z-score (sample std, ddof=1).
-  4. Composite improvementScore = unweighted mean of the four domain z-scores.
-  5. Percentile rank (0..100) across the cohort.
+  2. Standardize each domain against the FROZEN reference (not this CSV).
+  3. Composite = mean of the four domain z-scores, only when all four exist.
+  4. Percentile = position within the frozen reference's composite distribution.
 
-Output: appends six columns to results.csv:
-  ageImprovementZ, wrinklesImprovementZ, volumeImprovementZ, jawlineImprovementZ,
-  improvementScore, improvementPercentile
+Two rules this script enforces:
+
+  * A domain requires ALL of its inputs. A partial mean is a different
+    estimator and is not comparable to the reference, so it yields N/A.
+  * A missing value is N/A. It is never 0, and a pair missing one domain does
+    not receive a composite built from the other three.
 
 Usage:
-    python3 scripts/compute_improvement_score.py --csv scripts/results.csv
+    python3 scripts/compute_improvement_score.py \\
+        --csv scripts/results.csv \\
+        --reference scripts/reference/cohort-reference.json
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import json
 import statistics
+import sys
 from pathlib import Path
 from typing import Optional
 
-
-SUB_REGIONS = [
-    "crowsFeet",
-    "nasolabialFolds",
-    "foreheadLines",
-    "glabellarLines",
-    "perioralLines",
-    "underEyeHollows",
-    "jawlineLaxity",
-]
+from nexus_pipeline import (
+    DOMAIN_KEYS,
+    NOT_AVAILABLE,
+    PREPROCESSING_VERSION,
+    RUBRIC_VERSION,
+    compute_raw_domains,
+    fmt,
+    parse_csv_value,
+)
 
 NEW_COLUMNS = [
     "ageImprovementZ",
@@ -51,174 +57,179 @@ NEW_COLUMNS = [
     "jawlineImprovementZ",
     "improvementScore",
     "improvementPercentile",
+    "improvementUnavailableReason",
+    "referenceVersion",
 ]
 
+DOMAIN_COLUMN = {
+    "age": "ageImprovementZ",
+    "wrinkles": "wrinklesImprovementZ",
+    "volume": "volumeImprovementZ",
+    "jawline": "jawlineImprovementZ",
+}
 
-def to_float(s: str) -> Optional[float]:
-    if s is None or s == "":
-        return None
-    try:
-        return float(s)
-    except ValueError:
-        return None
-
-
-def domain_age(row: dict) -> Optional[float]:
-    """Younger after = improvement → flip sign of years delta."""
-    v = to_float(row.get("deltaPredictedFacialAge", ""))
-    return None if v is None else -v
-
-
-def domain_wrinkles(row: dict) -> Optional[float]:
-    """Mean of the 7 sub-region severity deltas, sign-flipped."""
-    vals = [to_float(row.get(f"{r}Delta", "")) for r in SUB_REGIONS]
-    vals = [-v for v in vals if v is not None]
-    return statistics.mean(vals) if vals else None
+DOMAIN_MISSING_REASON = {
+    "age": "deltaPredictedFacialAge is N/A",
+    "wrinkles": "one or more of the 7 sub-region deltas is N/A",
+    "volume": "one or more perceived firmness/density/fullness deltas is N/A",
+    "jawline": "jawlineLaxityDelta or perceivedGonialAngleDelta is N/A",
+}
 
 
-def domain_volume(row: dict) -> Optional[float]:
-    """Perception fields (-50..+50) where positive already means better."""
-    keys = [
-        "perceivedSkinFirmnessDelta",
-        "perceivedDensityDelta",
-        "perceivedFacialFullnessDelta",
-    ]
-    vals = [to_float(row.get(k, "")) for k in keys]
-    vals = [v for v in vals if v is not None]
-    return statistics.mean(vals) if vals else None
+def percentile_against(sorted_ascending: list[float], value: float) -> float:
+    """Midpoint-of-ties position within the reference distribution, 0..100."""
+    below = sum(1 for v in sorted_ascending if v < value)
+    equal = sum(1 for v in sorted_ascending if v == value)
+    return (below + equal / 2) / len(sorted_ascending) * 100
 
 
-def domain_jawline(row: dict) -> Optional[float]:
-    """Combine -jawlineLaxityDelta (severity → flip) with perceivedGonialAngleDelta."""
-    laxity = to_float(row.get("jawlineLaxityDelta", ""))
-    gonial = to_float(row.get("perceivedGonialAngleDelta", ""))
-    parts: list[float] = []
-    if laxity is not None:
-        parts.append(-laxity)
-    if gonial is not None:
-        parts.append(gonial)
-    return statistics.mean(parts) if parts else None
-
-
-def zscore(values: list[Optional[float]]) -> list[Optional[float]]:
-    """Sample std (ddof=1) z-score; preserves None positions."""
-    present = [v for v in values if v is not None]
-    if len(present) < 2:
-        return [0.0 if v is not None else None for v in values]
-    mu = statistics.mean(present)
-    sd = statistics.stdev(present)
-    if sd == 0:
-        return [0.0 if v is not None else None for v in values]
-    return [None if v is None else (v - mu) / sd for v in values]
-
-
-def percentile_ranks(values: list[Optional[float]]) -> list[Optional[float]]:
-    """Average-rank percentile in [0, 100]; ties get the average rank."""
-    indexed = [(i, v) for i, v in enumerate(values) if v is not None]
-    if not indexed:
-        return [None] * len(values)
-    indexed.sort(key=lambda iv: iv[1])
-    ranks = [0.0] * len(values)
-    n = len(indexed)
-    i = 0
-    while i < n:
-        j = i
-        while j + 1 < n and indexed[j + 1][1] == indexed[i][1]:
-            j += 1
-        # Average rank for the tie group, 1-based.
-        avg_rank = (i + j) / 2 + 1
-        for k in range(i, j + 1):
-            ranks[indexed[k][0]] = avg_rank
-        i = j + 1
-    out: list[Optional[float]] = [None] * len(values)
-    for orig_idx, _ in indexed:
-        # Convert 1..n rank into 0..100 percentile.
-        out[orig_idx] = (ranks[orig_idx] - 1) / max(1, n - 1) * 100
+def to_numeric_row(row: dict) -> dict:
+    out: dict = {}
+    for key, raw in row.items():
+        if key in ("notes", "error", "warnings", "pipelineNotes"):
+            continue
+        out[key] = parse_csv_value(raw)
     return out
-
-
-def fmt(v: Optional[float], places: int = 4) -> str:
-    if v is None:
-        return ""
-    return f"{round(v, places)}"
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--csv", required=True, help="Path to results.csv (will be updated in place)")
+    ap.add_argument("--csv", required=True, help="Results CSV (updated in place)")
+    ap.add_argument("--reference", required=True, help="Frozen cohort reference JSON")
     args = ap.parse_args()
 
-    path = Path(args.csv).expanduser().resolve()
-    rows = list(csv.DictReader(path.open("r", newline="", encoding="utf-8")))
+    csv_path = Path(args.csv).expanduser().resolve()
+    ref_path = Path(args.reference).expanduser().resolve()
+
+    if not ref_path.is_file():
+        sys.stderr.write(
+            f"No cohort reference at {ref_path}.\n"
+            "Build one first: python3 scripts/build_cohort_reference.py\n"
+        )
+        return 1
+
+    reference = json.loads(ref_path.read_text(encoding="utf-8"))
+    ref_domains = reference["domains"]
+    ref_distribution = sorted(reference["compositeDistribution"])
+
+    rows = list(csv.DictReader(csv_path.open("r", newline="", encoding="utf-8")))
     if not rows:
         print("No rows found.")
         return 1
 
-    fieldnames = list(rows[0].keys())
-    # Drop any prior copies of the score columns so a re-run produces clean output.
-    fieldnames = [c for c in fieldnames if c not in NEW_COLUMNS]
+    fieldnames = [c for c in rows[0].keys() if c not in NEW_COLUMNS]
     fieldnames.extend(NEW_COLUMNS)
 
-    age_raw = [domain_age(r) for r in rows]
-    wri_raw = [domain_wrinkles(r) for r in rows]
-    vol_raw = [domain_volume(r) for r in rows]
-    jaw_raw = [domain_jawline(r) for r in rows]
+    scored = 0
+    unscoreable: dict[str, int] = {}
 
-    age_z = zscore(age_raw)
-    wri_z = zscore(wri_raw)
-    vol_z = zscore(vol_raw)
-    jaw_z = zscore(jaw_raw)
+    for row in rows:
+        numeric = to_numeric_row(row)
 
-    composite: list[Optional[float]] = []
-    for a, w, v, j in zip(age_z, wri_z, vol_z, jaw_z):
-        parts = [x for x in (a, w, v, j) if x is not None]
-        composite.append(statistics.mean(parts) if parts else None)
+        # Provenance gate: a z-score only means something against a reference
+        # produced the same way.
+        mismatch: Optional[str] = None
+        if row.get("error"):
+            mismatch = "row recorded a scoring error"
+        elif row.get("rubricVersion") not in (RUBRIC_VERSION, None, ""):
+            if row.get("rubricVersion") != reference["rubricVersion"]:
+                mismatch = (
+                    f"rubric {row.get('rubricVersion')} != reference {reference['rubricVersion']}"
+                )
+        if mismatch is None and row.get("preprocessingVersion"):
+            if row["preprocessingVersion"] != reference["preprocessingVersion"]:
+                mismatch = (
+                    f"preprocessing {row['preprocessingVersion']} != "
+                    f"reference {reference['preprocessingVersion']}"
+                )
+        if mismatch is None and row.get("model") and row["model"] != reference["modelId"]:
+            mismatch = f"model {row['model']} != reference {reference['modelId']}"
 
-    pct = percentile_ranks(composite)
+        if mismatch:
+            for col in DOMAIN_COLUMN.values():
+                row[col] = NOT_AVAILABLE
+            row["improvementScore"] = NOT_AVAILABLE
+            row["improvementPercentile"] = NOT_AVAILABLE
+            row["improvementUnavailableReason"] = mismatch
+            row["referenceVersion"] = reference["referenceVersion"]
+            unscoreable[mismatch] = unscoreable.get(mismatch, 0) + 1
+            continue
 
-    for i, row in enumerate(rows):
-        row["ageImprovementZ"] = fmt(age_z[i])
-        row["wrinklesImprovementZ"] = fmt(wri_z[i])
-        row["volumeImprovementZ"] = fmt(vol_z[i])
-        row["jawlineImprovementZ"] = fmt(jaw_z[i])
-        row["improvementScore"] = fmt(composite[i])
-        row["improvementPercentile"] = fmt(pct[i], 2)
+        raw_domains = compute_raw_domains(numeric)
+        zs: dict[str, Optional[float]] = {}
+        for key in DOMAIN_KEYS:
+            raw = raw_domains[key]
+            if raw is None:
+                zs[key] = None
+            else:
+                stats = ref_domains[key]
+                zs[key] = (raw - stats["mean"]) / stats["sd"]
+            row[DOMAIN_COLUMN[key]] = fmt(zs[key])
 
-    with path.open("w", newline="", encoding="utf-8") as f:
+        missing = [k for k in DOMAIN_KEYS if zs[k] is None]
+        if missing:
+            reason = "; ".join(DOMAIN_MISSING_REASON[k] for k in missing)
+            row["improvementScore"] = NOT_AVAILABLE
+            row["improvementPercentile"] = NOT_AVAILABLE
+            row["improvementUnavailableReason"] = f"missing domain(s): {reason}"
+            unscoreable[f"missing domains: {','.join(missing)}"] = (
+                unscoreable.get(f"missing domains: {','.join(missing)}", 0) + 1
+            )
+        else:
+            composite = statistics.mean([zs[k] for k in DOMAIN_KEYS])  # type: ignore[misc]
+            row["improvementScore"] = fmt(composite)
+            row["improvementPercentile"] = fmt(
+                percentile_against(ref_distribution, composite), 2
+            )
+            row["improvementUnavailableReason"] = ""
+            scored += 1
+
+        row["referenceVersion"] = reference["referenceVersion"]
+
+    with csv_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(rows)
 
-    # Quick stdout summary.
-    scores = [c for c in composite if c is not None]
-    print(f"Updated {path} with {len(NEW_COLUMNS)} new columns over {len(rows)} rows.")
-    if scores:
+    print(f"Updated {csv_path} over {len(rows)} rows.")
+    print(f"Reference: {reference['referenceVersion']} (n={reference['sampleSize']})")
+    print(f"Scored: {scored}    Unscoreable: {len(rows) - scored}")
+    for reason, count in sorted(unscoreable.items(), key=lambda kv: -kv[1]):
+        print(f"  {count:>4}  {reason}")
+
+    values = [
+        parse_csv_value(r["improvementScore"])
+        for r in rows
+        if parse_csv_value(r.get("improvementScore")) is not None
+    ]
+    if len(values) > 1:
         print(
-            "improvementScore  "
-            f"min={min(scores):+.3f}  "
-            f"max={max(scores):+.3f}  "
-            f"mean={statistics.mean(scores):+.3f}  "
-            f"median={statistics.median(scores):+.3f}  "
-            f"std={statistics.stdev(scores):.3f}"
+            "\nimprovementScore  "
+            f"min={min(values):+.3f}  max={max(values):+.3f}  "
+            f"mean={statistics.mean(values):+.3f}  "
+            f"median={statistics.median(values):+.3f}  "
+            f"sd={statistics.stdev(values):.3f}"
         )
 
-    # Top / bottom 5 for sanity.
-    rows_with_score = [(c, r) for c, r in zip(composite, rows) if c is not None]
-    rows_with_score.sort(key=lambda cr: cr[0])
-    print("\nBottom 5 (worst):")
-    for c, r in rows_with_score[:5]:
-        print(
-            f"  score={c:+.2f}  pct={r['improvementPercentile']:>5}  "
-            f"folder={r['folder']:>10}  weeks={r['weeksAfter'] or '?':>3}  "
-            f"after={Path(r['afterPath']).name}"
-        )
-    print("\nTop 5 (best):")
-    for c, r in rows_with_score[-5:][::-1]:
-        print(
-            f"  score={c:+.2f}  pct={r['improvementPercentile']:>5}  "
-            f"folder={r['folder']:>10}  weeks={r['weeksAfter'] or '?':>3}  "
-            f"after={Path(r['afterPath']).name}"
-        )
+    scored_rows = [
+        (parse_csv_value(r["improvementScore"]), r)
+        for r in rows
+        if parse_csv_value(r.get("improvementScore")) is not None
+    ]
+    scored_rows.sort(key=lambda cr: cr[0])  # type: ignore[arg-type,return-value]
+
+    def show(label: str, subset) -> None:
+        print(f"\n{label}:")
+        for c, r in subset:
+            print(
+                f"  score={c:+.2f}  pct={r['improvementPercentile']:>6}  "
+                f"folder={r['folder']:>10}  weeks={r['weeksAfter'] or NOT_AVAILABLE:>3}  "
+                f"after={Path(r['afterPath']).name}"
+            )
+
+    if scored_rows:
+        show("Bottom 5 (worst)", scored_rows[:5])
+        show("Top 5 (best)", scored_rows[-5:][::-1])
 
     return 0
 

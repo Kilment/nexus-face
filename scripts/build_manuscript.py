@@ -9,6 +9,7 @@ formatting, table formatting) stays consistent across artifacts.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from docx import Document
@@ -18,12 +19,23 @@ from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
-OUT = Path(
-    "/sessions/keen-loving-planck/mnt/Research/Artificial Intelligence/1. Working/"
-    "Facial Aging Study/Facial Aging Study (PRS)"
-)
+# Output directory, which must also contain _aggregate_stats.json.
+# Previously hardcoded to one author's machine, which made this script
+# unrunnable in a fresh clone.
+_out_env = os.environ.get("NEXUS_MANUSCRIPT_DIR")
+if not _out_env:
+    raise SystemExit(
+        "NEXUS_MANUSCRIPT_DIR is not set.\n"
+        "Point it at the directory holding _aggregate_stats.json, e.g.\n"
+        "  export NEXUS_MANUSCRIPT_DIR=~/facial-aging-study"
+    )
+OUT = Path(_out_env).expanduser()
 OUT.mkdir(parents=True, exist_ok=True)
-STATS = json.loads((OUT / "_aggregate_stats.json").read_text())
+
+_stats_path = OUT / "_aggregate_stats.json"
+if not _stats_path.is_file():
+    raise SystemExit(f"No _aggregate_stats.json in {OUT}.")
+STATS = json.loads(_stats_path.read_text())
 
 
 # --- Style helpers --------------------------------------------------------

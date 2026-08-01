@@ -36,6 +36,7 @@ import {
 } from "@/lib/photo-meta-text-input";
 import type { GalleryStackParamList } from "@/navigation/GalleryStackNavigator";
 import type { Photo } from "@shared/schema";
+import { formatDemographicBadge } from "@/lib/format-demographics";
 
 type NavigationProp = NativeStackNavigationProp<GalleryStackParamList>;
 
@@ -311,13 +312,11 @@ function PhotoCard({ photo, borderColor, theme, isDark, onPress }: PhotoCardProp
                   <Feather name="link" size={12} color="#FFFFFF" />
                 </View>
               ) : null}
-              {(photo.gender || photo.ageRange) ? (
-                <View style={styles.demographicBadge}>
-                  <ThemedText style={styles.demographicText}>
-                    {photo.gender ? `${photo.gender.charAt(0)}` : ""}{photo.ageRange ? ` ${photo.ageRange}` : ""}
-                  </ThemedText>
-                </View>
-              ) : null}
+              <View style={styles.demographicBadge}>
+                <ThemedText style={styles.demographicText}>
+                  {formatDemographicBadge(photo.gender, photo.ageRange)}
+                </ThemedText>
+              </View>
               {photo.weeksAfter !== null ? (
                 <View style={styles.weeksBadge}>
                   <ThemedText style={styles.weeksText}>{photo.weeksAfter}W</ThemedText>
@@ -360,13 +359,11 @@ function PhotoCard({ photo, borderColor, theme, isDark, onPress }: PhotoCardProp
                   <Feather name="link" size={12} color="#FFFFFF" />
                 </View>
               ) : null}
-              {(photo.gender || photo.ageRange) ? (
-                <View style={styles.demographicBadge}>
-                  <ThemedText style={styles.demographicText}>
-                    {photo.gender ? `${photo.gender.charAt(0)}` : ""}{photo.ageRange ? ` ${photo.ageRange}` : ""}
-                  </ThemedText>
-                </View>
-              ) : null}
+              <View style={styles.demographicBadge}>
+                <ThemedText style={styles.demographicText}>
+                  {formatDemographicBadge(photo.gender, photo.ageRange)}
+                </ThemedText>
+              </View>
               {photo.weeksAfter !== null ? (
                 <View style={styles.weeksBadge}>
                   <ThemedText style={styles.weeksText}>{photo.weeksAfter}W</ThemedText>

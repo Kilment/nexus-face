@@ -1,5 +1,5 @@
-import * as faceapi from "@vladmandic/face-api";
-import * as tf from "@tensorflow/tfjs-node";
+import * as faceapi from "@vladmandic/face-api/dist/face-api.node-wasm.js";
+import { ensureTfBackend, tf } from "./tf-backend";
 import { createCanvas, loadImage, Canvas, Image } from "canvas";
 import * as path from "path";
 import * as fs from "fs";
@@ -14,6 +14,9 @@ let modelsLoaded = false;
 
 async function loadModels(): Promise<void> {
   if (modelsLoaded) return;
+
+  // The wasm backend must be live before any tensor op or model load.
+  await ensureTfBackend();
 
   const modelsPath = path.join(process.cwd(), "server", "models");
   if (!fs.existsSync(modelsPath)) {
@@ -89,11 +92,13 @@ export async function computeLandmarkMetrics(imageBase64: string): Promise<Landm
   inputTensor.dispose();
 
   if (!detection) {
+    // Null, not zero: these values get subtracted to form deltas, and zeros
+    // there produce large, entirely fabricated "changes".
     return {
-      leftGonialProxyDeg: 0,
-      rightGonialProxyDeg: 0,
-      cheekFullnessRatio: 0,
-      jawWidthToFaceHeightRatio: 0,
+      leftGonialProxyDeg: null,
+      rightGonialProxyDeg: null,
+      cheekFullnessRatio: null,
+      jawWidthToFaceHeightRatio: null,
       faceDetected: false,
     };
   }
@@ -141,8 +146,10 @@ export async function computeLandmarkMetrics(imageBase64: string): Promise<Landm
   );
   const cheekSpread = Math.hypot(rightEyeCenter.x - leftEyeCenter.x, rightEyeCenter.y - leftEyeCenter.y);
 
-  const cheekFullnessRatio = faceHeight > 0 ? cheekSpread / faceHeight : 0;
-  const jawWidthToFaceHeightRatio = faceHeight > 0 ? jawWidth / faceHeight : 0;
+  // A non-positive face height means the landmarks are degenerate; the ratio is
+  // undefined, so report it as such instead of 0.
+  const cheekFullnessRatio = faceHeight > 0 ? cheekSpread / faceHeight : null;
+  const jawWidthToFaceHeightRatio = faceHeight > 0 ? jawWidth / faceHeight : null;
 
   return {
     leftGonialProxyDeg,

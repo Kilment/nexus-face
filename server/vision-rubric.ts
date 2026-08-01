@@ -1,37 +1,61 @@
 import OpenAI from "openai";
 import { createCanvas, loadImage } from "canvas";
-import { pairMetricsSchema, type PairMetrics } from "@shared/cohort-metrics";
+import {
+  pairMetricsSchema,
+  SUB_REGION_KEYS,
+  RUBRIC_VERSION,
+  type PairMetrics,
+} from "@shared/cohort-metrics";
+import rubricSpec from "@shared/rubric.v1.1.json";
 
 const openai = new OpenAI({
   baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
   apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
 });
 
-const VISION_MODEL = process.env.COHORT_VISION_MODEL ?? "gpt-4o";
+/**
+ * Pinned, dated snapshot. A floating alias ("gpt-4o") silently re-points to a
+ * new model, which shifts every score and invalidates comparison against the
+ * frozen cohort reference. Override only with another dated snapshot, and
+ * rebuild the reference when you do.
+ */
+const DEFAULT_VISION_MODEL = "gpt-4o-2024-11-20";
+const VISION_MODEL = process.env.COHORT_VISION_MODEL ?? DEFAULT_VISION_MODEL;
 
-const RUBRIC_PROMPT = `You are assisting with exploratory research image comparison (not clinical diagnosis).
-Compare BEFORE (first image) vs AFTER (second image) standardized face portraits.
+if (/^(gpt-4o|gpt-4o-mini|gpt-4-turbo|chatgpt-4o-latest)$/.test(VISION_MODEL)) {
+  console.warn(
+    `[vision-rubric] COHORT_VISION_MODEL="${VISION_MODEL}" is a floating alias. ` +
+      "Scores will drift when the alias re-points. Pin a dated snapshot " +
+      `(e.g. "${DEFAULT_VISION_MODEL}") and rebuild the cohort reference.`,
+  );
+}
 
-Score changes as deltas (AFTER minus BEFORE) on these scales where applicable:
-- Predicted facial age (years): estimate independently for each image, then set deltas accordingly.
-- Wrinkles / subclinical appearance: use a 0–100 severity scale per image; deltas are AFTER minus BEFORE (negative = improvement if lower severity is better).
-- Perceived skin firmness, density, facial fullness: each on −50..+50 delta where 0=no change, positive=better firmness/density/fullness appearance.
-- Perceived gonial (jaw) angle opening appearance: delta in approximate degrees perception (−10..+10).
+// Fail loudly at load if the schema and the shared rubric spec have drifted.
+(function assertRubricMatchesSchema() {
+  if (rubricSpec.rubricVersion !== RUBRIC_VERSION) {
+    throw new Error(
+      `Rubric version mismatch: shared/rubric.v1.1.json is ${rubricSpec.rubricVersion} but ` +
+        `cohort-metrics.ts expects ${RUBRIC_VERSION}.`,
+    );
+  }
+  const specRegions = rubricSpec.subRegions.map((r) => r.key);
+  const missing = SUB_REGION_KEYS.filter((k) => !specRegions.includes(k));
+  const extra = specRegions.filter((k) => !(SUB_REGION_KEYS as readonly string[]).includes(k));
+  if (missing.length || extra.length) {
+    throw new Error(
+      `Rubric sub-region drift. Missing from spec: [${missing.join(", ")}]; ` +
+        `unknown in spec: [${extra.join(", ")}].`,
+    );
+  }
+})();
 
-Respond ONLY with valid JSON matching this TypeScript shape (numbers only for scored fields):
-{
-  "predictedFacialAgeBefore": number,
-  "predictedFacialAgeAfter": number,
-  "deltaPredictedFacialAge": number,
-  "deltaSubclinicalWrinkles": number,
-  "deltaWrinkles": number,
-  "perceivedSkinFirmnessDelta": number,
-  "perceivedDensityDelta": number,
-  "perceivedFacialFullnessDelta": number,
-  "perceivedGonialAngleDelta": number,
-  "confidence": number,
-  "notes": string
-}`;
+export function getVisionModelId(): string {
+  return VISION_MODEL;
+}
+
+export function getRubricVersion(): string {
+  return rubricSpec.rubricVersion;
+}
 
 interface LuminanceStats {
   mean: number;
@@ -80,7 +104,7 @@ function normalizeImageToTargetLuminance(
   }
 }
 
-async function harmonizePairLighting(
+export async function harmonizePairLighting(
   beforeBase64: string,
   afterBase64: string,
 ): Promise<{ beforeBase64: string; afterBase64: string }> {
@@ -118,91 +142,227 @@ async function harmonizePairLighting(
   };
 }
 
-export function getVisionModelId(): string {
-  return VISION_MODEL;
+/** Accept numeric strings and explicit nulls; anything else becomes null. */
+function coerceScore(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed === "" || /^(n\/?a|null|unknown|undetermined)$/i.test(trimmed)) return null;
+    const n = Number(trimmed);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function coerceConfidence(value: unknown): number | null {
+  const n = coerceScore(value);
+  if (n === null) return null;
+  // Models report either 0..1 or 0..100; normalize to 0..1.
+  const scaled = n > 1 ? n / 100 : n;
+  return Math.max(0, Math.min(1, scaled));
+}
+
+/** Flatten the model's response into the shape pairMetricsSchema validates. */
+function normalizeResponse(raw: Record<string, unknown>): Record<string, unknown> {
+  const scalarKeys = [
+    "predictedFacialAgeBefore",
+    "predictedFacialAgeAfter",
+    "deltaPredictedFacialAge",
+    "wrinklesBefore",
+    "wrinklesAfter",
+    "deltaWrinkles",
+    "subclinicalWrinklesBefore",
+    "subclinicalWrinklesAfter",
+    "deltaSubclinicalWrinkles",
+    "perceivedSkinFirmnessDelta",
+    "perceivedDensityDelta",
+    "perceivedFacialFullnessDelta",
+    "perceivedGonialAngleDelta",
+  ];
+
+  const out: Record<string, unknown> = {};
+  for (const key of scalarKeys) out[key] = coerceScore(raw[key]);
+  out.confidence = coerceConfidence(raw.confidence);
+  out.notes = typeof raw.notes === "string" ? raw.notes : "";
+
+  const rawRegions = (raw.subRegions ?? {}) as Record<string, unknown>;
+  const subRegions: Record<string, { before: number | null; after: number | null; delta: number | null }> = {};
+  for (const key of SUB_REGION_KEYS) {
+    const block = (rawRegions[key] ?? {}) as Record<string, unknown>;
+    subRegions[key] = {
+      before: coerceScore(block.before),
+      after: coerceScore(block.after),
+      delta: coerceScore(block.delta),
+    };
+  }
+  out.subRegions = subRegions;
+
+  return out;
+}
+
+/**
+ * The model reports each delta independently of the before/after pair it also
+ * reports. When those disagree the response is internally inconsistent, and
+ * quietly trusting either one would be inventing a result. Surface it instead.
+ */
+export function findSelfConsistencyViolations(metrics: PairMetrics): string[] {
+  const problems: string[] = [];
+
+  for (const check of rubricSpec.selfConsistency.checks) {
+    const delta = metrics[check.delta as keyof PairMetrics] as number | null;
+    const after = metrics[check.after as keyof PairMetrics] as number | null;
+    const before = metrics[check.before as keyof PairMetrics] as number | null;
+    if (delta === null || after === null || before === null) continue;
+    const implied = after - before;
+    if (Math.abs(implied - delta) > check.tolerance) {
+      problems.push(
+        `${check.delta}=${delta} disagrees with ${check.after}-${check.before}=${implied.toFixed(2)}`,
+      );
+    }
+  }
+
+  const tol = rubricSpec.selfConsistency.subRegionTolerance;
+  for (const key of SUB_REGION_KEYS) {
+    const region = metrics.subRegions[key];
+    if (region.before === null || region.after === null || region.delta === null) continue;
+    const implied = region.after - region.before;
+    if (Math.abs(implied - region.delta) > tol) {
+      problems.push(
+        `subRegions.${key}.delta=${region.delta} disagrees with after-before=${implied.toFixed(2)}`,
+      );
+    }
+  }
+
+  return problems;
+}
+
+export interface PairScoreResult {
+  metrics: PairMetrics;
+  rawText: string;
+  modelId: string;
+  rubricVersion: string;
+  /** Non-fatal integrity notes recorded alongside the score. */
+  warnings: string[];
 }
 
 export async function scorePairWithVisionRubric(
   beforeBase64: string,
   afterBase64: string,
-): Promise<{ metrics: PairMetrics; rawText: string }> {
+  options: { harmonizeLighting?: boolean; maxAttempts?: number } = {},
+): Promise<PairScoreResult> {
   if (!process.env.AI_INTEGRATIONS_OPENAI_API_KEY) {
     throw new Error("Vision rubric requires AI_INTEGRATIONS_OPENAI_API_KEY");
   }
 
+  const { harmonizeLighting = true, maxAttempts = 3 } = options;
+  const warnings: string[] = [];
+
   let comparisonBeforeBase64 = beforeBase64;
   let comparisonAfterBase64 = afterBase64;
-  try {
-    const harmonized = await harmonizePairLighting(beforeBase64, afterBase64);
-    comparisonBeforeBase64 = harmonized.beforeBase64;
-    comparisonAfterBase64 = harmonized.afterBase64;
-  } catch (error) {
-    console.warn("Lighting harmonization failed, continuing with original images.", error);
+  if (harmonizeLighting) {
+    // A failure here changes the model's input, so it must be recorded rather
+    // than swallowed — the pair is no longer canonical preprocessing.
+    try {
+      const harmonized = await harmonizePairLighting(beforeBase64, afterBase64);
+      comparisonBeforeBase64 = harmonized.beforeBase64;
+      comparisonAfterBase64 = harmonized.afterBase64;
+    } catch (error) {
+      throw new Error(
+        "Lighting harmonization failed; refusing to score under non-canonical preprocessing: " +
+          (error instanceof Error ? error.message : String(error)),
+      );
+    }
   }
 
-  const response = await openai.chat.completions.create({
-    model: VISION_MODEL,
-    temperature: 0,
-    max_tokens: 800,
-    messages: [
-      { role: "system", content: RUBRIC_PROMPT },
-      {
-        role: "user",
-        content: [
-          { type: "text", text: "Image 1 is BEFORE. Image 2 is AFTER." },
+  let lastError: unknown = null;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const response = await openai.chat.completions.create({
+        model: VISION_MODEL,
+        temperature: 0,
+        max_tokens: 1500,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: rubricSpec.prompt },
           {
-            type: "image_url",
-            image_url: {
-              url: `data:image/png;base64,${comparisonBeforeBase64}`,
-              detail: "high",
-            },
-          },
-          {
-            type: "image_url",
-            image_url: {
-              url: `data:image/png;base64,${comparisonAfterBase64}`,
-              detail: "high",
-            },
+            role: "user",
+            content: [
+              { type: "text", text: rubricSpec.userTurnText },
+              {
+                type: "image_url",
+                image_url: {
+                  url: `data:image/png;base64,${comparisonBeforeBase64}`,
+                  detail: "high",
+                },
+              },
+              {
+                type: "image_url",
+                image_url: {
+                  url: `data:image/png;base64,${comparisonAfterBase64}`,
+                  detail: "high",
+                },
+              },
+            ],
           },
         ],
-      },
-    ],
-  });
+      });
 
-  const rawText = response.choices[0]?.message?.content ?? "";
-  const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-  const jsonStr = jsonMatch ? jsonMatch[0] : rawText;
+      const rawText = response.choices[0]?.message?.content ?? "";
+      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+      const jsonStr = jsonMatch ? jsonMatch[0] : rawText;
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(jsonStr);
-  } catch {
-    throw new Error(`Vision rubric returned non-JSON: ${rawText.slice(0, 500)}`);
-  }
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(jsonStr);
+      } catch {
+        throw new Error(`Vision rubric returned non-JSON: ${rawText.slice(0, 500)}`);
+      }
+      if (!parsed || typeof parsed !== "object") {
+        throw new Error("Vision rubric returned a non-object payload");
+      }
 
-  const normalizedRecord =
-    parsed && typeof parsed === "object" ? { ...(parsed as Record<string, unknown>) } : null;
+      const normalized = normalizeResponse(parsed as Record<string, unknown>);
 
-  if (normalizedRecord) {
-    const rawConfidence = normalizedRecord.confidence;
-    if (typeof rawConfidence === "number") {
-      normalizedRecord.confidence =
-        rawConfidence > 1 ? Math.max(0, Math.min(1, rawConfidence / 100)) : Math.max(0, Math.min(1, rawConfidence));
-    } else if (typeof rawConfidence === "string") {
-      const parsedConfidence = Number(rawConfidence);
-      if (Number.isFinite(parsedConfidence)) {
-        normalizedRecord.confidence =
-          parsedConfidence > 1
-            ? Math.max(0, Math.min(1, parsedConfidence / 100))
-            : Math.max(0, Math.min(1, parsedConfidence));
+      // Range violations mean the model ignored the scale; that is a bad
+      // response to retry, not a value to clamp into the valid range.
+      const result = pairMetricsSchema.safeParse(normalized);
+      if (!result.success) {
+        throw new Error(`Vision rubric JSON validation failed: ${result.error.message}`);
+      }
+
+      const violations = findSelfConsistencyViolations(result.data);
+      if (violations.length > 0) {
+        if (attempt < maxAttempts) {
+          throw new Error(`Self-inconsistent response: ${violations.join("; ")}`);
+        }
+        warnings.push(
+          `Self-consistency violations persisted after ${maxAttempts} attempts: ${violations.join("; ")}`,
+        );
+      }
+
+      if (attempt > 1) {
+        warnings.push(`Scored on attempt ${attempt} of ${maxAttempts}.`);
+      }
+
+      return {
+        metrics: result.data,
+        rawText,
+        modelId: VISION_MODEL,
+        rubricVersion: rubricSpec.rubricVersion,
+        warnings,
+      };
+    } catch (error) {
+      lastError = error;
+      if (attempt < maxAttempts) {
+        await new Promise((r) => setTimeout(r, Math.min(8000, 500 * 2 ** attempt)));
       }
     }
   }
 
-  const result = pairMetricsSchema.safeParse(normalizedRecord ?? parsed);
-  if (!result.success) {
-    throw new Error(`Vision rubric JSON validation failed: ${result.error.message}`);
-  }
-
-  return { metrics: result.data, rawText };
+  throw new Error(
+    `Vision rubric failed after ${maxAttempts} attempts: ` +
+      (lastError instanceof Error ? lastError.message : String(lastError)),
+  );
 }

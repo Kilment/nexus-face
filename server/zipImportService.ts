@@ -265,9 +265,8 @@ export async function importZipBufferForUser(options: ZipImportOptions): Promise
       initials: item.initials.toUpperCase(),
       beforeAfter: item.beforeAfter,
       locationCode: item.locationCode,
-      gender: demographics?.gender,
-      ageRange: demographics?.ageRange,
-      ethnicity: demographics?.ethnicity,
+      gender: demographics.gender,
+      ageRange: demographics.ageRange,
       weeksAfter: item.beforeAfter === "after" ? item.weeksAfter ?? null : null,
     });
 

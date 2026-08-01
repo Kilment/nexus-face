@@ -27,6 +27,7 @@ import { hapticFeedback } from "@/lib/haptics";
 import type { GalleryStackParamList } from "@/navigation/GalleryStackNavigator";
 import type { RootStackParamList } from "@/navigation/RootStackNavigator";
 import type { Photo } from "@shared/schema";
+import { formatDemographicBadge, formatDemographicsFull } from "@/lib/format-demographics";
 
 type GalleryNavProp = NativeStackNavigationProp<GalleryStackParamList>;
 type RootNavProp = NativeStackNavigationProp<RootStackParamList>;
@@ -154,13 +155,11 @@ export default function PhotoDetailScreen() {
                 contentFit="contain"
                 allowDownscaling={false}
               />
-              {(photo.gender || photo.ageRange) ? (
-                <View style={styles.demographicOverlay}>
-                  <ThemedText style={styles.demographicOverlayText}>
-                    {photo.gender ? `${photo.gender.charAt(0)}` : ""}{photo.ageRange ? ` ${photo.ageRange}` : ""}
-                  </ThemedText>
-                </View>
-              ) : null}
+              <View style={styles.demographicOverlay}>
+                <ThemedText style={styles.demographicOverlayText}>
+                  {formatDemographicBadge(photo.gender, photo.ageRange)}
+                </ThemedText>
+              </View>
               {photo.weeksAfter !== null && photo.weeksAfter !== undefined ? (
                 <View style={styles.weeksOverlay}>
                   <ThemedText style={styles.weeksOverlayText}>{photo.weeksAfter}W</ThemedText>
@@ -180,13 +179,11 @@ export default function PhotoDetailScreen() {
                 contentFit="contain"
                 allowDownscaling={false}
               />
-              {(photo.gender || photo.ageRange) ? (
-                <View style={styles.demographicOverlay}>
-                  <ThemedText style={styles.demographicOverlayText}>
-                    {photo.gender ? `${photo.gender.charAt(0)}` : ""}{photo.ageRange ? ` ${photo.ageRange}` : ""}
-                  </ThemedText>
-                </View>
-              ) : null}
+              <View style={styles.demographicOverlay}>
+                <ThemedText style={styles.demographicOverlayText}>
+                  {formatDemographicBadge(photo.gender, photo.ageRange)}
+                </ThemedText>
+              </View>
               {photo.weeksAfter !== null && photo.weeksAfter !== undefined ? (
                 <View style={styles.weeksOverlay}>
                   <ThemedText style={styles.weeksOverlayText}>{photo.weeksAfter}W</ThemedText>
@@ -244,20 +241,16 @@ export default function PhotoDetailScreen() {
             <ThemedText style={styles.metadataValue}>{formattedDate}</ThemedText>
           </View>
 
-          {(photo.gender || photo.ageRange) ? (
-            <>
-              <View style={styles.metadataDivider} />
-              <View style={styles.metadataRow}>
-                <Feather name="info" size={18} color={theme.textSecondary} />
-                <ThemedText style={[styles.metadataLabel, { color: theme.textSecondary }]}>
-                  Demographics
-                </ThemedText>
-                <ThemedText style={styles.metadataValue}>
-                  {photo.gender ? `${photo.gender}` : ""}{photo.ageRange ? ` ${photo.ageRange}` : ""}
-                </ThemedText>
-              </View>
-            </>
-          ) : null}
+          <View style={styles.metadataDivider} />
+          <View style={styles.metadataRow}>
+            <Feather name="info" size={18} color={theme.textSecondary} />
+            <ThemedText style={[styles.metadataLabel, { color: theme.textSecondary }]}>
+              Demographics
+            </ThemedText>
+            <ThemedText style={styles.metadataValue}>
+              {formatDemographicsFull(photo.gender, photo.ageRange)}
+            </ThemedText>
+          </View>
 
           {photo.weeksAfter !== null && photo.weeksAfter !== undefined ? (
             <>

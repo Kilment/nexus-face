@@ -1,0 +1,42 @@
+{
+  "rubricVersion": "1.1.0",
+  "description": "Canonical pairwise before/after facial appearance rubric. Single source of truth for BOTH the in-app scorer (server/vision-rubric.ts) and the batch research scorer (scripts/score_pairs.py). Neither may define its own prompt or field set.",
+  "subRegions": [
+    { "key": "crowsFeet", "label": "periorbital fine lines" },
+    { "key": "nasolabialFolds", "label": "cheek-to-mouth folds" },
+    { "key": "foreheadLines", "label": "horizontal forehead wrinkles" },
+    { "key": "glabellarLines", "label": "vertical lines between brows (\"11s\")" },
+    { "key": "perioralLines", "label": "vertical lip lines" },
+    { "key": "underEyeHollows", "label": "tear-trough / infraorbital hollowing" },
+    { "key": "jawlineLaxity", "label": "jowling / loss of mandibular definition" }
+  ],
+  "ranges": {
+    "predictedFacialAgeBefore": [0, 120],
+    "predictedFacialAgeAfter": [0, 120],
+    "deltaPredictedFacialAge": [-40, 40],
+    "wrinklesBefore": [0, 100],
+    "wrinklesAfter": [0, 100],
+    "deltaWrinkles": [-100, 100],
+    "subclinicalWrinklesBefore": [0, 100],
+    "subclinicalWrinklesAfter": [0, 100],
+    "deltaSubclinicalWrinkles": [-100, 100],
+    "perceivedSkinFirmnessDelta": [-50, 50],
+    "perceivedDensityDelta": [-50, 50],
+    "perceivedFacialFullnessDelta": [-50, 50],
+    "perceivedGonialAngleDelta": [-10, 10],
+    "confidence": [0, 1],
+    "subRegionSeverity": [0, 100],
+    "subRegionDelta": [-100, 100]
+  },
+  "selfConsistency": {
+    "description": "Fields the model reports independently that must agree with their own before/after pair. Checked after parsing; a mismatch beyond tolerance is an error, not a silent correction.",
+    "checks": [
+      { "delta": "deltaPredictedFacialAge", "after": "predictedFacialAgeAfter", "before": "predictedFacialAgeBefore", "tolerance": 0.5 },
+      { "delta": "deltaWrinkles", "after": "wrinklesAfter", "before": "wrinklesBefore", "tolerance": 1.0 },
+      { "delta": "deltaSubclinicalWrinkles", "after": "subclinicalWrinklesAfter", "before": "subclinicalWrinklesBefore", "tolerance": 1.0 }
+    ],
+    "subRegionTolerance": 1.0
+  },
+  "prompt": "You are assisting with exploratory research image comparison (not clinical diagnosis).\nCompare BEFORE (first image) vs AFTER (second image) standardized face portraits.\n\nScore on these scales:\n- Predicted facial age (years): estimate independently for each image; delta = AFTER minus BEFORE.\n- Overall wrinkles AND subclinical (fine/early) wrinkle appearance: 0-100 severity per image (0 = none, 100 = severe); delta = AFTER minus BEFORE (negative = improvement).\n- Perceived skin firmness, density, facial fullness: each on -50..+50 delta where 0=no change, positive=better firmness/density/fullness appearance.\n- Perceived gonial (jaw) angle opening appearance: delta in approximate degrees (-10..+10).\n- Per anatomic sub-region (crowsFeet, nasolabialFolds, foreheadLines, glabellarLines, perioralLines, underEyeHollows, jawlineLaxity): rate each on 0-100 severity per image (0 = none, 100 = severe); delta = AFTER minus BEFORE (negative = improvement).\n- Confidence: 0..1 self-rated confidence in the comparison.\n\nIf either image is too low quality, occluded, or ambiguous to score a given field, use null for that field rather than guessing. Do not invent a value you cannot see.\n\nRespond ONLY with valid JSON matching this TypeScript shape (numbers only for scored fields):\n{\n  \"predictedFacialAgeBefore\": number,\n  \"predictedFacialAgeAfter\": number,\n  \"deltaPredictedFacialAge\": number,\n  \"wrinklesBefore\": number,\n  \"wrinklesAfter\": number,\n  \"deltaWrinkles\": number,\n  \"subclinicalWrinklesBefore\": number,\n  \"subclinicalWrinklesAfter\": number,\n  \"deltaSubclinicalWrinkles\": number,\n  \"perceivedSkinFirmnessDelta\": number,\n  \"perceivedDensityDelta\": number,\n  \"perceivedFacialFullnessDelta\": number,\n  \"perceivedGonialAngleDelta\": number,\n  \"subRegions\": {\n    \"crowsFeet\":        { \"before\": number, \"after\": number, \"delta\": number },\n    \"nasolabialFolds\":  { \"before\": number, \"after\": number, \"delta\": number },\n    \"foreheadLines\":    { \"before\": number, \"after\": number, \"delta\": number },\n    \"glabellarLines\":   { \"before\": number, \"after\": number, \"delta\": number },\n    \"perioralLines\":    { \"before\": number, \"after\": number, \"delta\": number },\n    \"underEyeHollows\":  { \"before\": number, \"after\": number, \"delta\": number },\n    \"jawlineLaxity\":    { \"before\": number, \"after\": number, \"delta\": number }\n  },\n  \"confidence\": number,\n  \"notes\": string\n}",
+  "userTurnText": "Image 1 is BEFORE. Image 2 is AFTER."
+}
