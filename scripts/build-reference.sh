@@ -36,12 +36,24 @@ if [[ ! -f "$PHOTOS_DIR/manifest.json" ]]; then
   exit 1
 fi
 
-for var in AI_INTEGRATIONS_OPENAI_API_KEY ANTHROPIC_API_KEY; do
-  if [[ -z "${!var:-}" ]]; then
-    echo "$var is not set." >&2
-    exit 1
-  fi
-done
+# Load local secrets if present, without echoing them.
+if [[ -f "$REPO_ROOT/.env.local" ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$REPO_ROOT/.env.local"
+  set +a
+fi
+
+# Deterministic standardization makes no OpenAI call, so only the scoring key
+# is required. AI_GUIDED=1 opts into the vision-guided variant, which needs both.
+if [[ -z "${ANTHROPIC_API_KEY:-}" ]]; then
+  echo "ANTHROPIC_API_KEY is not set. Add it to $REPO_ROOT/.env.local" >&2
+  exit 1
+fi
+if [[ "${AI_GUIDED:-0}" == "1" && -z "${AI_INTEGRATIONS_OPENAI_API_KEY:-}" ]]; then
+  echo "AI_GUIDED=1 requires AI_INTEGRATIONS_OPENAI_API_KEY in .env.local" >&2
+  exit 1
+fi
 
 # Rebuilding the reference changes every score derived from it. Never clobber
 # an existing one without the operator saying so.
@@ -58,9 +70,14 @@ fi
 
 echo
 echo "=== 1/4  Canonical preprocessing (de-id -> 512x512 standardize) ==="
-npx tsx "$REPO_ROOT/scripts/standardize-cohort.ts" \
-  --photos-dir "$PHOTOS_DIR" \
-  --out-dir "$WORK_DIR"
+if [[ -f "$WORK_DIR/preprocessing-manifest.json" ]]; then
+  echo "Already standardized; reusing $WORK_DIR (delete it to force a rebuild)."
+else
+  npx tsx "$REPO_ROOT/scripts/standardize-cohort.ts" \
+    --photos-dir "$PHOTOS_DIR" \
+    --out-dir "$WORK_DIR" \
+    ${AI_GUIDED:+--ai-guided-standardization}
+fi
 
 echo
 echo "=== 2/4  Scoring every pair against rubric v1.1 ==="

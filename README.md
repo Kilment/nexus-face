@@ -149,7 +149,7 @@ reported scores are no longer comparable, and the reference must be rebuilt.
 ## Requirements
 
 - Node.js ≥ 20
-- Python ≥ 3.10 (`anthropic`, `pillow`, `numpy`)
+- Python ≥ 3.9 (`anthropic`, `pillow`, `numpy`)
 - PostgreSQL — app only; the research pipeline needs no database
 - OpenAI API key (standardization) and Anthropic API key (batch scoring)
 - AWS Rekognition credentials — optional; without them demographics are `N/A`

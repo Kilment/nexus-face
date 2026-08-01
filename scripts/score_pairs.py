@@ -48,6 +48,7 @@ from typing import Optional
 from nexus_pipeline import (
     NOT_AVAILABLE,
     PREPROCESSING_VERSION,
+    SUPPORTED_PREPROCESSING_VERSIONS,
     RUBRIC_PROMPT,
     RUBRIC_VERSION,
     SCALAR_FIELDS,
@@ -63,8 +64,11 @@ from nexus_pipeline import (
 SCRIPT_VERSION = "score_pairs.py v2.0"
 
 # Pinned dated snapshot. A floating alias silently re-points to a new model,
-# which shifts every score and invalidates the frozen cohort reference.
-DEFAULT_MODEL = "claude-sonnet-4-5-20250929"
+# which shifts every score and invalidates the frozen cohort reference — so the
+# newer undated IDs (claude-opus-5, claude-sonnet-5, claude-opus-4-8, ...) are
+# deliberately NOT used here despite being more capable. This is the most
+# capable snapshot that carries a date.
+DEFAULT_MODEL = "claude-opus-4-5-20251101"
 
 FLOATING_ALIAS = re.compile(r"^(claude-[a-z0-9.]+-\d(-\d)?|claude-\d[a-z-]*|.*-latest)$")
 
@@ -138,11 +142,11 @@ def enumerate_pairs(standardized_dir: Path) -> tuple[list[Pair], list[dict], dic
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
 
-    if manifest.get("preprocessingVersion") != PREPROCESSING_VERSION:
+    manifest_preprocessing = manifest.get("preprocessingVersion")
+    if manifest_preprocessing not in SUPPORTED_PREPROCESSING_VERSIONS:
         sys.stderr.write(
-            f"Preprocessing version mismatch: manifest is "
-            f"{manifest.get('preprocessingVersion')!r} but this script expects "
-            f"{PREPROCESSING_VERSION!r}. Re-run standardize-cohort.ts.\n"
+            f"Unknown preprocessing version {manifest_preprocessing!r}. Supported: "
+            f"{sorted(SUPPORTED_PREPROCESSING_VERSIONS)}. Re-run standardize-cohort.ts.\n"
         )
         sys.exit(1)
 

@@ -1,10 +1,17 @@
 import OpenAI from "openai";
 import { createCanvas, loadImage } from "canvas";
 
-const openai = new OpenAI({
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-});
+/** Lazy: deterministic standardization must work with no OpenAI key present. */
+let client: OpenAI | null = null;
+function openaiClient(): OpenAI {
+  if (!client) {
+    client = new OpenAI({
+      baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+    });
+  }
+  return client;
+}
 
 const STANDARD_WIDTH = 512;
 const STANDARD_HEIGHT = 512;
@@ -29,7 +36,7 @@ interface ImageAnalysis {
 
 async function analyzeImage(imageBase64: string): Promise<ImageAnalysis> {
   try {
-    const response = await openai.chat.completions.create({
+    const response = await openaiClient().chat.completions.create({
       model: "gpt-4o",
       messages: [
         {
@@ -140,12 +147,37 @@ function normalizeHistogram(imageData: ImageData): void {
   }
 }
 
-export async function standardizePhoto(imageBase64: string): Promise<string> {
+/** Deterministic geometry + histogram only. No model call, no network. */
+const DETERMINISTIC_ANALYSIS: ImageAnalysis = {
+  brightness: "normal",
+  contrast: "normal",
+  zoom: "normal",
+  centering: "centered",
+  adjustments: { brightnessAdjust: 0, contrastAdjust: 0, shouldCrop: false },
+};
+
+export type StandardizationMode = "deterministic" | "ai-guided";
+
+/**
+ * Normalize a portrait to 512x512 with a common histogram.
+ *
+ * "deterministic" (default) performs only the reproducible operations:
+ * aspect-preserving letterbox resize and histogram normalization. The same
+ * input always yields byte-identical output, with no API key required.
+ *
+ * "ai-guided" additionally applies vision-model brightness/contrast/crop
+ * hints. Better framing on awkward source photos, but the output is not
+ * reproducible and it costs an API call per image.
+ */
+export async function standardizePhoto(
+  imageBase64: string,
+  mode: StandardizationMode = "deterministic",
+): Promise<string> {
   const imageBuffer = Buffer.from(imageBase64, "base64");
   const img = await loadImage(imageBuffer);
-  
-  const analysis = await analyzeImage(imageBase64);
-  console.log("Photo analysis:", JSON.stringify(analysis, null, 2));
+
+  const analysis =
+    mode === "ai-guided" ? await analyzeImage(imageBase64) : DETERMINISTIC_ANALYSIS;
   
   let sourceX = 0;
   let sourceY = 0;
@@ -208,7 +240,11 @@ export async function standardizePhoto(imageBase64: string): Promise<string> {
   
   ctx.putImageData(imageData, 0, 0);
   
-  console.log("Standardization applied: histogram normalization + AI-guided adjustments");
+  console.log(
+    mode === "ai-guided"
+      ? "Standardization applied: histogram normalization + AI-guided adjustments"
+      : "Standardization applied: deterministic letterbox + histogram normalization",
+  );
   
   const pngBuffer = canvas.toBuffer("image/png");
   return pngBuffer.toString("base64");

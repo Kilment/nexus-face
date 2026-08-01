@@ -37,8 +37,17 @@ USER_TURN_TEXT: str = RUBRIC["userTurnText"]
 SUB_REGIONS: list[str] = [r["key"] for r in RUBRIC["subRegions"]]
 RANGES: dict[str, list[float]] = RUBRIC["ranges"]
 
-# Must match shared/cohort-metrics.ts PREPROCESSING_VERSION.
-PREPROCESSING_VERSION = "deid+standardize512+harmonize@1.0.0"
+# Must mirror shared/cohort-metrics.ts exactly.
+PREPROCESSING_VERSION_DETERMINISTIC = "deid+standardize512-deterministic@1.1.0"
+PREPROCESSING_VERSION_AI_GUIDED = "deid+standardize512+harmonize@1.0.0"
+PREPROCESSING_VERSION = PREPROCESSING_VERSION_DETERMINISTIC
+
+# A cohort may be built under either contract, but never a mix: the two produce
+# different pixels, so their scores are not comparable.
+SUPPORTED_PREPROCESSING_VERSIONS = {
+    PREPROCESSING_VERSION_DETERMINISTIC,
+    PREPROCESSING_VERSION_AI_GUIDED,
+}
 
 NOT_AVAILABLE = "N/A"
 

@@ -25,7 +25,10 @@ import * as fs from "fs";
 import * as path from "path";
 import { deIdentifyWithFallback } from "../server/deid";
 import { standardizePhoto } from "../server/photo-standardizer";
-import { PREPROCESSING_VERSION } from "../shared/cohort-metrics";
+import {
+  PREPROCESSING_VERSION_DETERMINISTIC,
+  PREPROCESSING_VERSION_AI_GUIDED,
+} from "../shared/cohort-metrics";
 
 interface ManifestPhoto {
   role: string;
@@ -116,6 +119,11 @@ async function main(): Promise<number> {
   }
 
   const allowGenerative = args["allow-generative-deid"] === true;
+  // Deterministic by default: no vision model, no API key, byte-reproducible.
+  const aiGuided = args["ai-guided-standardization"] === true;
+  const preprocessingVersion = aiGuided
+    ? PREPROCESSING_VERSION_AI_GUIDED
+    : PREPROCESSING_VERSION_DETERMINISTIC;
   const force = args["force"] === true;
   const manifestPath =
     typeof args.manifest === "string" ? args.manifest : path.join(photosDir, "manifest.json");
@@ -163,7 +171,9 @@ async function main(): Promise<number> {
 
       try {
         const rawBase64 = fs.readFileSync(sourcePath).toString("base64");
-        const deid = await deIdentifyWithFallback(rawBase64);
+        const deid = await deIdentifyWithFallback(rawBase64, {
+          allowGenerativeFallback: allowGenerative,
+        });
         const generative = deid.method === "OpenAIFallback";
 
         if (generative) {
@@ -185,7 +195,10 @@ async function main(): Promise<number> {
           }
         }
 
-        const standardized = await standardizePhoto(deid.processedImageBase64);
+        const standardized = await standardizePhoto(
+          deid.processedImageBase64,
+          aiGuided ? "ai-guided" : "deterministic",
+        );
         fs.writeFileSync(outputPath, Buffer.from(standardized, "base64"));
 
         records.push({
@@ -215,7 +228,7 @@ async function main(): Promise<number> {
   }
 
   const outManifest = {
-    preprocessingVersion: PREPROCESSING_VERSION,
+    preprocessingVersion,
     generatedAt: new Date().toISOString(),
     sourceManifest: manifestPath,
     sourcePhotosDir: photosDir,

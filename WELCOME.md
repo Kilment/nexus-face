@@ -34,7 +34,7 @@ contents deliberately.
 ## 1. Prerequisites
 
 - **Node.js ≥ 20** — `node -v`
-- **Python ≥ 3.10** — `python3 --version`
+- **Python ≥ 3.9** — `python3 --version`
 - **PostgreSQL** — only for the mobile app; the research pipeline needs no database
 - An **OpenAI API key** (standardization) and an **Anthropic API key** (batch scoring)
 

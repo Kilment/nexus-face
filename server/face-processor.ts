@@ -276,8 +276,10 @@ function fallbackAnonymizeWithoutFace(canvas: Canvas): string {
 
   const eyeY = cy - ovalRy * 0.18;
   const eyeDx = ovalRx * 0.34;
-  const dotRx = Math.max(8, width * 0.035);
-  const dotRy = dotRx * 0.72;
+  // Matched to the landmark-fitted mask above: cover the aperture, not the
+  // periorbital skin the rubric measures.
+  const dotRx = Math.max(6, width * 0.024);
+  const dotRy = dotRx * 0.5;
 
   mctx.fillStyle = "#000000";
   mctx.beginPath();
@@ -398,23 +400,47 @@ export async function processImageForFaceAnonymization(imageBase64: string): Pro
     y: Math.max(0, Math.min(rightEye.reduce((sum: number, p: any) => sum + p.y, 0) / rightEye.length - sourceY, clampedHeight))
   };
   
-  const eyeDistance = Math.sqrt(
-    Math.pow(rightEyeCenter.x - leftEyeCenter.x, 2) +
-    Math.pow(rightEyeCenter.y - leftEyeCenter.y, 2)
-  );
-  
-  const dotRadiusX = eyeDistance * 0.15;
-  const dotRadiusY = dotRadiusX * 0.75;
-  
+  /**
+   * Occlude the palpebral aperture and nothing more.
+   *
+   * The mask used to be a fixed fraction of interpupillary distance, which
+   * spilled onto the lateral canthus and the infraorbital skin — exactly where
+   * the crowsFeet and underEyeHollows sub-regions are scored. Fitting the
+   * ellipse to the eye landmarks instead keeps identity concealed while
+   * leaving that skin measurable.
+   */
+  const eyeMask = (eyePoints: Array<{ x: number; y: number }>) => {
+    const xs = eyePoints.map((p) => p.x - sourceX);
+    const ys = eyePoints.map((p) => p.y - sourceY);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+
+    // Measured against the 68-point landmarks, the previous fixed-fraction mask
+    // was ~1.8x taller than the eye aperture while being narrower than it: it
+    // spilled down into the tear trough (where underEyeHollows is scored) yet
+    // left the canthi partly exposed. Fit both axes to the aperture instead.
+    //
+    // Horizontal: landmark canthi overshoot the visible opening slightly, so
+    // 0.95 covers the eye corner-to-corner without reaching the crow's-feet
+    // field, which radiates lateral to the outer canthus.
+    const rx = ((maxX - minX) / 2) * 0.95;
+    // Vertical: enough for lid margin and lashes, stopping above the tear
+    // trough. The floor keeps a squinting or closed eye covered.
+    const ry = Math.max(((maxY - minY) / 2) * 1.25, rx * 0.3);
+
+    finalCtx.beginPath();
+    finalCtx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+    finalCtx.fill();
+  };
+
   finalCtx.fillStyle = "#000000";
-  
-  finalCtx.beginPath();
-  finalCtx.ellipse(leftEyeCenter.x, leftEyeCenter.y, dotRadiusX, dotRadiusY, 0, 0, Math.PI * 2);
-  finalCtx.fill();
-  
-  finalCtx.beginPath();
-  finalCtx.ellipse(rightEyeCenter.x, rightEyeCenter.y, dotRadiusX, dotRadiusY, 0, 0, Math.PI * 2);
-  finalCtx.fill();
+  eyeMask(leftEye);
+  eyeMask(rightEye);
   
   const pngBuffer = finalCanvas.toBuffer("image/png");
   return pngBuffer.toString("base64");

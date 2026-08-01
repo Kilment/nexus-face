@@ -1,9 +1,20 @@
 import OpenAI from "openai";
 
-const openai = new OpenAI({
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-});
+/**
+ * Constructed lazily. Building the client at module scope threw on import
+ * whenever no OpenAI key was set, which broke the research pipeline even
+ * though it never calls OpenAI in deterministic mode.
+ */
+let client: OpenAI | null = null;
+function openaiClient(): OpenAI {
+  if (!client) {
+    client = new OpenAI({
+      baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+    });
+  }
+  return client;
+}
 
 /**
  * Legacy/OpenAI fallback de-identification path.
@@ -16,7 +27,7 @@ export async function processImageForFaceAnonymizationOpenAI(
     throw new Error("Missing AI_INTEGRATIONS_OPENAI_API_KEY for OpenAI fallback");
   }
 
-  const analysisResponse = await openai.chat.completions.create({
+  const analysisResponse = await openaiClient().chat.completions.create({
     model: process.env.COHORT_VISION_MODEL ?? "gpt-4o",
     messages: [
       {
@@ -44,7 +55,7 @@ Do not include identifying details beyond facial structure.`,
 
   const faceDescription = analysisResponse.choices[0]?.message?.content || "";
 
-  const generateResponse = await openai.images.generate({
+  const generateResponse = await openaiClient().images.generate({
     model: "gpt-image-1",
     prompt: `Create a realistic anonymized face portrait from this description:
 

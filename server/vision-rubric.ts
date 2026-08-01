@@ -8,10 +8,17 @@ import {
 } from "@shared/cohort-metrics";
 import rubricSpec from "@shared/rubric.v1.1.json";
 
-const openai = new OpenAI({
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-});
+/** Lazy: importing this module must not require an OpenAI key. */
+let client: OpenAI | null = null;
+function openaiClient(): OpenAI {
+  if (!client) {
+    client = new OpenAI({
+      baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
+      apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
+    });
+  }
+  return client;
+}
 
 /**
  * Pinned, dated snapshot. A floating alias ("gpt-4o") silently re-points to a
@@ -279,7 +286,7 @@ export async function scorePairWithVisionRubric(
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      const response = await openai.chat.completions.create({
+      const response = await openaiClient().chat.completions.create({
         model: VISION_MODEL,
         temperature: 0,
         max_tokens: 1500,

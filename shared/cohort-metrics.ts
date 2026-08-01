@@ -109,10 +109,24 @@ export const ANALYSIS_VERSION = "2.0.0";
 export const RUBRIC_VERSION = "1.1.0";
 
 /**
- * Canonical preprocessing contract. A pair may only be compared against a
+ * Canonical preprocessing contracts. A pair may only be compared against a
  * frozen reference built under the same string.
+ *
+ * DETERMINISTIC is preferred for anything that ships. It uses no vision model,
+ * so the same source image always yields byte-identical output: a forker can
+ * regenerate the exact inputs a reference was built from, with no API key and
+ * no drift when a model is retired.
+ *
+ * AI_GUIDED additionally asks a vision model for brightness/contrast/crop
+ * hints. Slightly better framing on awkward source photos, at the cost of
+ * reproducibility and an API dependency.
  */
-export const PREPROCESSING_VERSION = "deid+standardize512+harmonize@1.0.0";
+export const PREPROCESSING_VERSION_DETERMINISTIC =
+  "deid+standardize512-deterministic@1.1.0";
+export const PREPROCESSING_VERSION_AI_GUIDED = "deid+standardize512+harmonize@1.0.0";
+
+/** Default for new work. */
+export const PREPROCESSING_VERSION = PREPROCESSING_VERSION_DETERMINISTIC;
 
 /** Render helper — the single place that decides what an absent value looks like. */
 export const NOT_AVAILABLE = "N/A";
