@@ -7,6 +7,7 @@ import {
   integer,
   jsonb,
   uniqueIndex,
+  index,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -15,6 +16,8 @@ export const users = pgTable("users", {
   id: varchar("id")
     .primaryKey()
     .default(sql`gen_random_uuid()`),
+  /** Apple's stable subject identifier ("sub" claim). The production identity. */
+  appleSub: text("apple_sub").unique(),
   replitId: text("replit_id").unique(),
   email: text("email").unique(),
   passwordHash: text("password_hash"),
@@ -22,6 +25,34 @@ export const users = pgTable("users", {
   profileImageUrl: text("profile_image_url"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+/**
+ * Server-side sessions.
+ *
+ * Authentication previously trusted a client-supplied `X-User-Id` header, so
+ * anyone who knew or guessed a user id was that user. Tokens are now random,
+ * server-issued, and stored only as a SHA-256 hash: a database disclosure does
+ * not yield usable credentials.
+ */
+export const sessions = pgTable(
+  "sessions",
+  {
+    id: varchar("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    userId: varchar("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** SHA-256 of the bearer token. The token itself is never stored. */
+    tokenHash: text("token_hash").notNull().unique(),
+    expiresAt: timestamp("expires_at").notNull(),
+    revokedAt: timestamp("revoked_at"),
+    lastUsedAt: timestamp("last_used_at").defaultNow().notNull(),
+    userAgent: text("user_agent"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [index("sessions_token_hash_idx").on(t.tokenHash)],
+);
 
 export const photos = pgTable("photos", {
   id: varchar("id")
@@ -158,6 +189,7 @@ export const pairAnalysisRelations = relations(pairAnalysis, ({ one }) => ({
 }));
 
 export const insertUserSchema = createInsertSchema(users).pick({
+  appleSub: true,
   replitId: true,
   email: true,
   passwordHash: true,
@@ -209,6 +241,7 @@ export const insertPairAnalysisSchema = createInsertSchema(pairAnalysis).pick({
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
+export type Session = typeof sessions.$inferSelect;
 export type InsertPhoto = z.infer<typeof insertPhotoSchema>;
 export type Photo = typeof photos.$inferSelect;
 export type Study = typeof studies.$inferSelect;

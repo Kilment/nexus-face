@@ -36,7 +36,9 @@ export interface UserStats {
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
+  getUserByAppleSub(appleSub: string): Promise<User | undefined>;
   getUserByReplitId(replitId: string): Promise<User | undefined>;
+  deleteUser(id: string): Promise<void>;
   getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   
@@ -78,6 +80,19 @@ export class DatabaseStorage implements IStorage {
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
     return user || undefined;
+  }
+
+  async getUserByAppleSub(appleSub: string): Promise<User | undefined> {
+    const [row] = await db.select().from(users).where(eq(users.appleSub, appleSub));
+    return row;
+  }
+
+  /**
+   * Permanent deletion. Photos, studies and analyses cascade via foreign keys,
+   * so no patient image survives the account.
+   */
+  async deleteUser(id: string): Promise<void> {
+    await db.delete(users).where(eq(users.id, id));
   }
 
   async getUserByReplitId(replitId: string): Promise<User | undefined> {

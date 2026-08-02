@@ -1,291 +1,145 @@
 import React, { useState } from "react";
-import { View, StyleSheet, Platform, Alert, TextInput, Pressable } from "react-native";
+import { View, StyleSheet, Platform, Alert, Linking } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { BlurView } from "expo-blur";
-import { Image } from "expo-image";
+import * as AppleAuthentication from "expo-apple-authentication";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
-import { GlassButton } from "@/components/GlassButton";
-import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { useAuth } from "@/lib/auth-context";
 import { hapticFeedback } from "@/lib/haptics";
 
+const PRIVACY_POLICY_URL = "https://github.com/Kilment/nexus-face/blob/main/PRIVACY.md";
+const TERMS_URL = "https://github.com/Kilment/nexus-face/blob/main/LICENSE";
+
+/**
+ * Sign in with Apple only.
+ *
+ * Email/password sign-in was removed along with the server endpoints backing
+ * it: that account system had no verification and no reset, and sat beside an
+ * ungated development login that minted a session for any address supplied.
+ * Apple provides a verified identity and an optional private relay address,
+ * which suits an app that touches clinical photographs.
+ */
 export default function LoginScreen() {
   const insets = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
-  const { login, signup } = useAuth();
+  const { signInWithApple, isAppleAuthAvailable } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
-  const [isSignUp, setIsSignUp] = useState(false);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [username, setUsername] = useState("");
 
-  const handleSubmit = async () => {
-    if (!email.trim() || !password.trim()) {
-      Alert.alert("Missing Fields", "Please enter both email and password.");
-      return;
-    }
-
-    if (password.length < 6) {
-      Alert.alert("Weak Password", "Password must be at least 6 characters.");
-      return;
-    }
-
+  const handleAppleSignIn = async () => {
     hapticFeedback.medium();
     setIsLoading(true);
     try {
-      if (isSignUp) {
-        await signup(email.trim(), password, username.trim() || undefined);
-      } else {
-        await login(email.trim(), password);
-      }
+      await signInWithApple();
       hapticFeedback.success();
-    } catch (error) {
+    } catch (error: any) {
+      // Dismissing the sheet is not an error worth surfacing.
+      if (error?.code === "ERR_REQUEST_CANCELED") return;
       hapticFeedback.error();
-      const message = error instanceof Error ? error.message : "Please try again.";
-      Alert.alert(isSignUp ? "Sign Up Failed" : "Login Failed", message);
+      Alert.alert(
+        "Sign-In Failed",
+        error instanceof Error ? error.message : "Please try again.",
+      );
     } finally {
       setIsLoading(false);
     }
   };
 
-  const toggleMode = () => {
-    hapticFeedback.light();
-    setIsSignUp(!isSignUp);
-    setEmail("");
-    setPassword("");
-    setUsername("");
-  };
-
   return (
     <ThemedView style={styles.container}>
-      <KeyboardAwareScrollViewCompat
-        contentContainerStyle={[
+      <View
+        style={[
           styles.content,
           {
-            paddingTop: insets.top + Spacing.xl,
+            paddingTop: insets.top + Spacing["3xl"],
             paddingBottom: insets.bottom + Spacing.xl,
           },
         ]}
       >
-        <View style={styles.logoSection}>
-          <View style={styles.logoWrapper}>
-            {Platform.OS === "ios" ? (
-              <BlurView
-                intensity={60}
-                tint={isDark ? "dark" : "light"}
-                style={styles.logoGlass}
-              >
-                <Image
-                  source={require("../../assets/images/icon.png")}
-                  style={styles.logo}
-                  contentFit="contain"
-                />
-              </BlurView>
-            ) : (
-              <View
-                style={[
-                  styles.logoGlass,
-                  {
-                    backgroundColor: isDark
-                      ? "rgba(44, 44, 46, 0.9)"
-                      : "rgba(255, 255, 255, 0.9)",
-                  },
-                ]}
-              >
-                <Image
-                  source={require("../../assets/images/icon.png")}
-                  style={styles.logo}
-                  contentFit="contain"
-                />
-              </View>
-            )}
-          </View>
-          <ThemedText style={styles.title}>DE-ID</ThemedText>
-          <ThemedText style={[styles.subtitle, { color: theme.tabIconSelected }]}>
-            Face
-          </ThemedText>
-          <ThemedText style={[styles.tagline, { color: theme.textSecondary }]}>
-            Anonymize Medical Facial Photos
+        <View style={styles.header}>
+          <ThemedText style={styles.title}>Nexus</ThemedText>
+          <ThemedText style={[styles.subtitle, { color: theme.textSecondary }]}>
+            Before And After Facial Analysis
           </ThemedText>
         </View>
 
-        <View style={styles.formSection}>
-          {isSignUp ? (
-            <View
-              style={[
-                styles.inputContainer,
-                {
-                  backgroundColor: isDark
-                    ? "rgba(44, 44, 46, 0.8)"
-                    : "rgba(255, 255, 255, 0.8)",
-                  borderColor: theme.border,
-                },
-              ]}
-            >
-              <TextInput
-                style={[styles.input, { color: theme.text }]}
-                placeholder="Username (optional)"
-                placeholderTextColor={theme.textTertiary}
-                value={username}
-                onChangeText={setUsername}
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-            </View>
-          ) : null}
+        <View style={[styles.notice, { borderColor: theme.warning }]}>
+          <ThemedText style={[styles.noticeText, { color: theme.textSecondary }]}>
+            Research tool, not a medical device. Results are model estimates of
+            appearance and must not guide clinical decisions.
+          </ThemedText>
+        </View>
 
-          <View
-            style={[
-              styles.inputContainer,
-              {
-                backgroundColor: isDark
-                  ? "rgba(44, 44, 46, 0.8)"
-                  : "rgba(255, 255, 255, 0.8)",
-                borderColor: theme.border,
-              },
-            ]}
-          >
-            <TextInput
-              style={[styles.input, { color: theme.text }]}
-              placeholder="Email"
-              placeholderTextColor={theme.textTertiary}
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-              autoComplete="email"
+        <View style={styles.actions}>
+          {isAppleAuthAvailable ? (
+            <AppleAuthentication.AppleAuthenticationButton
+              buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+              buttonStyle={
+                isDark
+                  ? AppleAuthentication.AppleAuthenticationButtonStyle.WHITE
+                  : AppleAuthentication.AppleAuthenticationButtonStyle.BLACK
+              }
+              cornerRadius={BorderRadius.md}
+              style={styles.appleButton}
+              onPress={() => {
+                if (!isLoading) void handleAppleSignIn();
+              }}
             />
-          </View>
-
-          <View
-            style={[
-              styles.inputContainer,
-              {
-                backgroundColor: isDark
-                  ? "rgba(44, 44, 46, 0.8)"
-                  : "rgba(255, 255, 255, 0.8)",
-                borderColor: theme.border,
-              },
-            ]}
-          >
-            <TextInput
-              style={[styles.input, { color: theme.text }]}
-              placeholder="Password"
-              placeholderTextColor={theme.textTertiary}
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              autoCapitalize="none"
-              autoComplete="password"
-            />
-          </View>
-
-          <GlassButton
-            title={isLoading ? (isSignUp ? "Creating Account..." : "Signing in...") : (isSignUp ? "Sign Up" : "Log In")}
-            icon={isLoading ? undefined : (isSignUp ? "user-plus" : "log-in")}
-            onPress={handleSubmit}
-            disabled={isLoading}
-            loading={isLoading}
-            size="large"
-          />
-
-          <Pressable onPress={toggleMode} style={styles.toggleButton}>
-            <ThemedText style={[styles.toggleText, { color: theme.tabIconSelected }]}>
-              {isSignUp ? "Already have an account? Log In" : "No Account? Sign Up!"}
+          ) : (
+            <ThemedText style={[styles.unavailable, { color: theme.textSecondary }]}>
+              {Platform.OS === "ios"
+                ? "Sign in with Apple is unavailable on this device. Check that you are signed in to iCloud."
+                : "This build supports Sign in with Apple on iOS only."}
             </ThemedText>
-          </Pressable>
+          )}
+        </View>
 
-          <ThemedText style={[styles.termsText, { color: theme.textTertiary }]}>
-            By continuing, you agree to our terms of service and privacy policy.
+        <View style={styles.legal}>
+          <ThemedText style={[styles.legalText, { color: theme.textTertiary }]}>
+            By continuing you agree to the{" "}
+            <ThemedText
+              style={[styles.link, { color: theme.tabIconSelected }]}
+              onPress={() => Linking.openURL(TERMS_URL)}
+            >
+              Terms
+            </ThemedText>{" "}
+            and{" "}
+            <ThemedText
+              style={[styles.link, { color: theme.tabIconSelected }]}
+              onPress={() => Linking.openURL(PRIVACY_POLICY_URL)}
+            >
+              Privacy Policy
+            </ThemedText>
+            .
           </ThemedText>
         </View>
-      </KeyboardAwareScrollViewCompat>
+      </View>
     </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
+  container: { flex: 1 },
   content: {
-    flexGrow: 1,
+    flex: 1,
     paddingHorizontal: Spacing.xl,
     justifyContent: "space-between",
   },
-  logoSection: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    gap: Spacing.xs,
-  },
-  logoWrapper: {
-    borderRadius: 40,
-    overflow: "hidden",
-    marginBottom: Spacing.lg,
-  },
-  logoGlass: {
-    width: 120,
-    height: 120,
-    borderRadius: 30,
-    justifyContent: "center",
-    alignItems: "center",
-    overflow: "hidden",
+  header: { alignItems: "center", marginTop: Spacing["3xl"] },
+  title: { fontSize: 40, fontWeight: "700", letterSpacing: -1 },
+  subtitle: { fontSize: 16, marginTop: Spacing.sm, textAlign: "center" },
+  notice: {
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.15)",
-  },
-  logo: {
-    width: 80,
-    height: 80,
-  },
-  title: {
-    fontSize: 36,
-    fontWeight: "800",
-    letterSpacing: 2,
-  },
-  subtitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    letterSpacing: 4,
-    textTransform: "uppercase",
-    marginTop: -4,
-  },
-  tagline: {
-    fontSize: 14,
-    textAlign: "center",
-    lineHeight: 22,
-    marginTop: Spacing.sm,
-  },
-  formSection: {
-    gap: Spacing.md,
-    paddingBottom: Spacing.xl,
-  },
-  inputContainer: {
-    height: 52,
     borderRadius: BorderRadius.md,
-    borderWidth: 1,
-    justifyContent: "center",
-    paddingHorizontal: Spacing.md,
+    padding: Spacing.md,
+    marginTop: Spacing.xl,
   },
-  input: {
-    fontSize: 16,
-    height: "100%",
-  },
-  toggleButton: {
-    alignItems: "center",
-    paddingVertical: Spacing.sm,
-  },
-  toggleText: {
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  termsText: {
-    fontSize: 12,
-    textAlign: "center",
-    lineHeight: 18,
-  },
+  noticeText: { fontSize: 13, lineHeight: 18, textAlign: "center" },
+  actions: { marginTop: Spacing.xl },
+  appleButton: { width: "100%", height: 50 },
+  unavailable: { fontSize: 14, textAlign: "center", lineHeight: 20 },
+  legal: { marginTop: Spacing.xl },
+  legalText: { fontSize: 12, textAlign: "center", lineHeight: 18 },
+  link: { fontSize: 12, textDecorationLine: "underline" },
 });

@@ -28,7 +28,7 @@ import { ThemedView } from "@/components/ThemedView";
 import { GlassCard } from "@/components/GlassCard";
 import { GlassButton } from "@/components/GlassButton";
 import { useTheme } from "@/hooks/useTheme";
-import { useAuth, AUTH_STORAGE_KEY, type User } from "@/lib/auth-context";
+import { useAuth, type User } from "@/lib/auth-context";
 import { Spacing, BorderRadius, Typography } from "@/constants/theme";
 import { hapticFeedback } from "@/lib/haptics";
 import { apiRequest, queryClient } from "@/lib/query-client";
@@ -77,7 +77,7 @@ export default function ProfileScreen() {
   const footerBottomInset = tabBarHeight + insets.bottom + Spacing.lg + Spacing.sm;
   const headerHeight = useHeaderHeight();
   const { theme, isDark } = useTheme();
-  const { user, logout, setUser } = useAuth();
+  const { user, logout, deleteAccount, setUser } = useAuth();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isEditingUsername, setIsEditingUsername] = useState(false);
   const [newUsername, setNewUsername] = useState(user?.username || "");
@@ -92,7 +92,7 @@ export default function ProfileScreen() {
       data,
       variables,
     ) => {
-      await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(data.user));
+      // The user object is display state only; the credential is the token.
       setUser(data.user);
       if ("username" in variables && variables.username !== undefined) {
         setIsEditingUsername(false);
@@ -219,6 +219,52 @@ export default function ProfileScreen() {
           },
         },
       ]
+    );
+  };
+
+  /**
+   * Apple requires in-app account deletion for any app offering account
+   * creation. This is a permanent server-side delete: photos, studies and
+   * analyses cascade, so no patient image survives the account.
+   */
+  const handleDeleteAccount = () => {
+    hapticFeedback.warning();
+    Alert.alert(
+      "Delete Account",
+      "This permanently deletes your account and every photo, study and analysis "
+        + "stored with it. This cannot be undone.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete Everything",
+          style: "destructive",
+          onPress: () => {
+            Alert.alert(
+              "Confirm Deletion",
+              "Last check. Your data cannot be recovered after this.",
+              [
+                { text: "Cancel", style: "cancel" },
+                {
+                  text: "Delete",
+                  style: "destructive",
+                  onPress: async () => {
+                    try {
+                      await deleteAccount();
+                      hapticFeedback.success();
+                    } catch (error) {
+                      hapticFeedback.error();
+                      Alert.alert(
+                        "Deletion Failed",
+                        error instanceof Error ? error.message : "Please try again.",
+                      );
+                    }
+                  },
+                },
+              ],
+            );
+          },
+        },
+      ],
     );
   };
 
@@ -507,6 +553,13 @@ export default function ProfileScreen() {
             icon="log-out"
             variant="destructive"
             onPress={handleLogout}
+          />
+          <View style={{ height: Spacing.sm }} />
+          <GlassButton
+            title="Delete Account"
+            icon="trash-2"
+            variant="destructive"
+            onPress={handleDeleteAccount}
           />
         </View>
 

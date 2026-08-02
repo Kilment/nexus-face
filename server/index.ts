@@ -43,7 +43,7 @@ function setupCors(app: express.Application) {
       const requestedHeaders = req.header("access-control-request-headers");
       res.header(
         "Access-Control-Allow-Headers",
-        requestedHeaders || "Content-Type, Authorization, X-User-Id",
+        requestedHeaders || "Content-Type, Authorization",
       );
       res.header("Access-Control-Allow-Credentials", "true");
     }

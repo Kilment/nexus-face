@@ -18,8 +18,11 @@
       },
       "infoPlist": {
         "NSCameraUsageDescription": "Nexus needs camera access to capture photos for face processing.",
-        "NSPhotoLibraryUsageDescription": "Nexus needs photo library access to upload images for processing."
-      }
+        "NSPhotoLibraryUsageDescription": "Nexus needs photo library access to upload images for processing.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "usesAppleSignIn": true,
+      "config": {}
     },
     "android": {
       "package": "com.nexus.app",
@@ -66,7 +69,9 @@
         {
           "photosPermission": "Nexus needs photo library access to upload images for processing."
         }
-      ]
+      ],
+      "expo-secure-store",
+      "expo-apple-authentication"
     ],
     "experiments": {
       "reactCompiler": true

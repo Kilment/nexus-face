@@ -1,7 +1,5 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-
-const AUTH_STORAGE_KEY = "@nexus_auth_user";
+import { getAuthToken } from "./auth-token";
 
 export function getApiUrl(): string {
   let host = process.env.EXPO_PUBLIC_DOMAIN;
@@ -15,15 +13,10 @@ export function getApiUrl(): string {
   return url.href;
 }
 
+/** Server-issued bearer token. The user id is no longer a credential. */
 async function getAuthHeaders(): Promise<Record<string, string>> {
-  try {
-    const storedUser = await AsyncStorage.getItem(AUTH_STORAGE_KEY);
-    if (storedUser) {
-      const parsedUser = JSON.parse(storedUser);
-      return { "X-User-Id": parsedUser.id };
-    }
-  } catch {}
-  return {};
+  const token = await getAuthToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 export async function throwIfResNotOk(res: Response) {

@@ -1,10 +1,12 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as AppleAuthentication from "expo-apple-authentication";
+import { Platform } from "react-native";
 import { getApiUrl } from "@/lib/query-client";
+import { saveAuthToken, getAuthToken, clearAuthToken } from "@/lib/auth-token";
 
 export interface User {
   id: string;
-  email?: string;
+  email?: string | null;
   username: string;
   profileImageUrl: string | null;
 }
@@ -13,49 +15,68 @@ interface AuthContextType {
   user: User | null;
   isLoading: boolean;
   isAuthenticated: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  signup: (email: string, password: string, username?: string) => Promise<void>;
+  /** True only where Sign in with Apple is actually available. */
+  isAppleAuthAvailable: boolean;
+  signInWithApple: () => Promise<void>;
   logout: () => Promise<void>;
+  deleteAccount: () => Promise<void>;
   checkAuth: () => Promise<void>;
   setUser: (user: User | null) => void;
 }
 
-/** Persisted logged-in user JSON (aligned with `@/lib/query-client` lookups). */
-export const AUTH_STORAGE_KEY = "@nexus_auth_user";
-
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+/** Authenticated fetch. Identity always rides on the server-issued token. */
+export async function authedFetch(path: string, init?: RequestInit): Promise<Response> {
+  const token = await getAuthToken();
+  return fetch(new URL(path, getApiUrl()).toString(), {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(init?.headers ?? {}),
+    },
+  });
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isAppleAuthAvailable, setIsAppleAuthAvailable] = useState(false);
 
+  useEffect(() => {
+    if (Platform.OS !== "ios") return;
+    AppleAuthentication.isAvailableAsync()
+      .then(setIsAppleAuthAvailable)
+      .catch(() => setIsAppleAuthAvailable(false));
+  }, []);
+
+  /**
+   * Validate the stored token against the server.
+   *
+   * The user object is never treated as a credential — identity comes from the
+   * server resolving the bearer token. A 401 means revoked or expired, so the
+   * token is discarded rather than trusted offline.
+   */
   const checkAuth = async () => {
     try {
-      const storedUser = await AsyncStorage.getItem(AUTH_STORAGE_KEY);
-      if (storedUser) {
-        const parsedUser = JSON.parse(storedUser);
-        try {
-          const response = await fetch(new URL("/api/auth/me", getApiUrl()).toString(), {
-            headers: { "X-User-Id": parsedUser.id },
-          });
-          if (response.ok) {
-            const data = await response.json();
-            await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(data.user));
-            setUser(data.user);
-          } else if (response.status === 401) {
-            await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
-            setUser(null);
-          } else {
-            setUser(parsedUser);
-          }
-        } catch {
-          setUser(parsedUser);
-        }
-      } else {
+      const token = await getAuthToken();
+      if (!token) {
+        setUser(null);
+        return;
+      }
+      const response = await authedFetch("/api/auth/me");
+      if (response.ok) {
+        const data = await response.json();
+        setUser(data.user);
+      } else if (response.status === 401) {
+        await clearAuthToken();
         setUser(null);
       }
+      // Other statuses (server down, offline) leave state alone so a transient
+      // outage does not sign the user out.
     } catch {
-      setUser(null);
+      // Network failure — keep whatever state we already had.
     } finally {
       setIsLoading(false);
     }
@@ -65,64 +86,62 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     checkAuth();
   }, []);
 
-  const login = async (email: string, password: string) => {
-    try {
-      const response = await fetch(new URL("/api/auth/login", getApiUrl()).toString(), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
-      
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Login failed");
-      }
-      
-      const data = await response.json();
-      await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(data.user));
-      setUser(data.user);
-    } catch (error) {
-      console.error("Login error:", error);
-      throw error;
-    }
-  };
+  const signInWithApple = async () => {
+    const credential = await AppleAuthentication.signInAsync({
+      requestedScopes: [
+        AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+        AppleAuthentication.AppleAuthenticationScope.EMAIL,
+      ],
+    });
 
-  const signup = async (email: string, password: string, username?: string) => {
-    try {
-      const response = await fetch(new URL("/api/auth/signup", getApiUrl()).toString(), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, username }),
-      });
-      
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Signup failed");
-      }
-      
-      const data = await response.json();
-      await AsyncStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(data.user));
-      setUser(data.user);
-    } catch (error) {
-      console.error("Signup error:", error);
-      throw error;
+    if (!credential.identityToken) {
+      throw new Error("Apple did not return an identity token.");
     }
+
+    // Verified server-side against Apple's public keys; nothing the client
+    // asserts about identity is trusted on its own.
+    const response = await fetch(new URL("/api/auth/apple", getApiUrl()).toString(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        identityToken: credential.identityToken,
+        fullName: credential.fullName
+          ? {
+              givenName: credential.fullName.givenName,
+              familyName: credential.fullName.familyName,
+            }
+          : null,
+      }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || "Sign-in failed.");
+    }
+
+    const data = await response.json();
+    await saveAuthToken(data.token);
+    setUser(data.user);
   };
 
   const logout = async () => {
     try {
-      const response = await fetch(new URL("/api/auth/logout", getApiUrl()).toString(), {
-        method: "POST",
-      });
-      if (!response.ok) {
-        throw new Error("Logout failed on server");
-      }
-      await AsyncStorage.removeItem(AUTH_STORAGE_KEY);
-      setUser(null);
-    } catch (error) {
-      console.error("Logout error:", error);
-      throw error;
+      await authedFetch("/api/auth/logout", { method: "POST" });
+    } catch {
+      // Even if the server call fails, drop the local credential.
     }
+    await clearAuthToken();
+    setUser(null);
+  };
+
+  const deleteAccount = async () => {
+    const response = await authedFetch("/api/auth/account", { method: "DELETE" });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || "Account deletion failed.");
+    }
+    await clearAuthToken();
+    setUser(null);
   };
 
   return (
@@ -131,9 +150,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         isLoading,
         isAuthenticated: !!user,
-        login,
-        signup,
+        isAppleAuthAvailable,
+        signInWithApple,
         logout,
+        deleteAccount,
         checkAuth,
         setUser,
       }}
@@ -149,17 +169,4 @@ export function useAuth() {
     throw new Error("useAuth must be used within an AuthProvider");
   }
   return context;
-}
-
-export async function getStoredUserId(): Promise<string | null> {
-  try {
-    const storedUser = await AsyncStorage.getItem(AUTH_STORAGE_KEY);
-    if (storedUser) {
-      const parsedUser = JSON.parse(storedUser);
-      return parsedUser.id;
-    }
-    return null;
-  } catch {
-    return null;
-  }
 }

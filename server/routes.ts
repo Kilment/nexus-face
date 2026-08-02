@@ -1,9 +1,16 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { createServer, type Server } from "node:http";
-import session from "express-session";
 import multer from "multer";
 import crypto from "crypto";
 import { storage } from "./storage";
+import {
+  requireAuth,
+  currentUserId,
+  createSession,
+  revokeSession,
+  revokeAllSessionsForUser,
+} from "./auth";
+import { verifyAppleIdentityToken } from "./apple-auth";
 import { getDeIdPipelineInfo } from "./face-processor";
 import { deIdentifyWithFallback } from "./deid";
 import { standardizePhoto } from "./photo-standardizer";
@@ -65,62 +72,6 @@ function importZipBodyParser(req: Request, res: Response, next: NextFunction) {
 }
 
 type RequestWithZipFile = Request & { file?: Express.Multer.File };
-
-function hashPassword(password: string): string {
-  const salt = crypto.randomBytes(16).toString("hex");
-  const hash = crypto.pbkdf2Sync(password, salt, 100000, 64, "sha512").toString("hex");
-  return `${salt}:${hash}`;
-}
-
-function verifyPassword(password: string, storedHash: string): boolean {
-  const [salt, hash] = storedHash.split(":");
-  if (!salt || !hash) return false;
-  const verifyHash = crypto.pbkdf2Sync(password, salt, 100000, 64, "sha512").toString("hex");
-  return hash === verifyHash;
-}
-
-declare module "express-session" {
-  interface SessionData {
-    userId?: string;
-  }
-}
-
-interface ReplitUserInfo {
-  id: string;
-  name: string;
-  profileImage?: string;
-}
-
-async function getReplitUserInfo(token: string): Promise<ReplitUserInfo | null> {
-  try {
-    const response = await fetch("https://replit.com/api/v0/auth/userinfo", {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-    if (!response.ok) return null;
-    const data = await response.json();
-    return {
-      id: data.sub,
-      name: data.name || data.preferred_username || "User",
-      profileImage: data.picture,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function requireAuth(req: Request, res: Response, next: NextFunction) {
-  const headerUserId = req.header("X-User-Id");
-  if (headerUserId) {
-    req.session.userId = headerUserId;
-  }
-  
-  if (!req.session.userId) {
-    return res.status(401).json({ error: "Unauthorized" });
-  }
-  next();
-}
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const deIdMetrics = {
@@ -205,156 +156,116 @@ export async function registerRoutes(app: Express): Promise<Server> {
     );
   }
 
-  app.use(
-    session({
-      secret: process.env.SESSION_SECRET || "nexus-secret-key",
-      resave: false,
-      saveUninitialized: false,
-      cookie: {
-        secure: process.env.NODE_ENV === "production",
-        httpOnly: true,
-        maxAge: 30 * 24 * 60 * 60 * 1000,
-      },
-    })
-  );
-
-  // Sign up endpoint
-  app.post("/api/auth/signup", async (req, res) => {
+  /**
+   * Sign in with Apple.
+   *
+   * The client's identityToken is verified against Apple's published keys
+   * before anything is trusted; issuer, audience and expiry are all enforced.
+   * On success the server issues its own random bearer token.
+   *
+   * This replaces password login, an ungated `dev-login` that minted a session
+   * for any email supplied, and Replit Auth — none of which are viable for a
+   * shipped application holding patient data.
+   */
+  app.post("/api/auth/apple", async (req, res) => {
     try {
-      const { email, password, username } = req.body;
-      if (!email || !password) {
-        return res.status(400).json({ error: "Email and password required" });
+      const { identityToken, fullName } = req.body as {
+        identityToken?: string;
+        fullName?: { givenName?: string | null; familyName?: string | null } | null;
+      };
+
+      if (!identityToken || typeof identityToken !== "string") {
+        return res.status(400).json({ error: "identityToken is required" });
       }
 
-      const existingUser = await storage.getUserByEmail(email);
-      if (existingUser) {
-        return res.status(400).json({ error: "Email already registered" });
+      let identity;
+      try {
+        identity = await verifyAppleIdentityToken(identityToken);
+      } catch (error) {
+        console.warn("Apple identity token rejected:", error);
+        return res.status(401).json({ error: "Invalid Apple identity token" });
       }
 
-      const passwordHash = hashPassword(password);
-      const user = await storage.createUser({
-        email,
-        passwordHash,
-        username: username || "Anonymous",
-        profileImageUrl: null,
-      });
+      let user = await storage.getUserByAppleSub(identity.sub);
 
-      req.session.userId = user.id;
-      res.json({ 
-        user: {
-          id: user.id,
-          email: user.email,
-          username: user.username,
-          profileImageUrl: user.profileImageUrl,
+      if (!user && identity.email) {
+        // Link a pre-existing account on first Apple sign-in.
+        const byEmail = await storage.getUserByEmail(identity.email);
+        if (byEmail) {
+          user = await storage.updateUser(byEmail.id, { appleSub: identity.sub });
         }
-      });
-    } catch (error) {
-      console.error("Signup error:", error);
-      res.status(500).json({ error: "Signup failed" });
-    }
-  });
-
-  // Login endpoint
-  app.post("/api/auth/login", async (req, res) => {
-    try {
-      const { email, password } = req.body;
-      if (!email || !password) {
-        return res.status(400).json({ error: "Email and password required" });
       }
 
-      const user = await storage.getUserByEmail(email);
-      if (!user || !user.passwordHash) {
-        return res.status(401).json({ error: "Invalid email or password" });
-      }
-
-      if (!verifyPassword(password, user.passwordHash)) {
-        return res.status(401).json({ error: "Invalid email or password" });
-      }
-
-      req.session.userId = user.id;
-      res.json({ 
-        user: {
-          id: user.id,
-          email: user.email,
-          username: user.username,
-          profileImageUrl: user.profileImageUrl,
-        }
-      });
-    } catch (error) {
-      console.error("Login error:", error);
-      res.status(500).json({ error: "Login failed" });
-    }
-  });
-
-  // Development login endpoint - for testing without Replit Auth (legacy)
-  app.post("/api/auth/dev-login", async (req, res) => {
-    try {
-      const { email } = req.body;
-      if (!email) {
-        return res.status(400).json({ error: "Email required" });
-      }
-
-      let user = await storage.getUserByEmail(email);
       if (!user) {
-        user = await storage.getUserByReplitId(email);
-      }
-      if (!user) {
+        // Apple only sends the name on the very first authorization, so use it
+        // when offered and fall back to something neutral otherwise.
+        const given = fullName?.givenName?.trim() ?? "";
+        const family = fullName?.familyName?.trim() ?? "";
+        const displayName = [given, family].filter(Boolean).join(" ");
         user = await storage.createUser({
-          email,
-          username: email.split("@")[0],
+          appleSub: identity.sub,
+          email: identity.email,
+          username: displayName || identity.email?.split("@")[0] || "Nexus User",
           profileImageUrl: null,
         });
       }
 
-      req.session.userId = user.id;
-      res.json({ user });
+      const { token, expiresAt } = await createSession(user.id, req.header("user-agent"));
+      res.json({
+        token,
+        expiresAt: expiresAt.toISOString(),
+        user: {
+          id: user.id,
+          email: user.email,
+          username: user.username,
+          profileImageUrl: user.profileImageUrl,
+        },
+      });
     } catch (error) {
-      console.error("Dev login error:", error);
-      res.status(500).json({ error: "Login failed" });
+      console.error("Apple sign-in error:", error);
+      res.status(500).json({ error: "Sign-in failed" });
     }
   });
 
-  app.post("/api/auth/replit", async (req, res) => {
+  app.get("/api/auth/me", requireAuth, async (req, res) => {
+    const u = req.user!;
+    res.json({
+      user: {
+        id: u.id,
+        email: u.email,
+        username: u.username,
+        profileImageUrl: u.profileImageUrl,
+      },
+    });
+  });
+
+  app.post("/api/auth/logout", requireAuth, async (req, res) => {
     try {
-      const { token } = req.body;
-      if (!token) {
-        return res.status(400).json({ error: "Token required" });
-      }
-
-      const userInfo = await getReplitUserInfo(token);
-      if (!userInfo) {
-        return res.status(401).json({ error: "Invalid token" });
-      }
-
-      let user = await storage.getUserByReplitId(userInfo.id);
-      if (!user) {
-        user = await storage.createUser({
-          replitId: userInfo.id,
-          username: userInfo.name,
-          profileImageUrl: userInfo.profileImage,
-        });
-      }
-
-      req.session.userId = user.id;
-      res.json({ user });
+      await revokeSession(req.authToken!);
+      res.json({ success: true });
     } catch (error) {
-      console.error("Auth error:", error);
-      res.status(500).json({ error: "Authentication failed" });
+      console.error("Logout error:", error);
+      res.status(500).json({ error: "Logout failed" });
     }
   });
 
-  app.get("/api/auth/me", async (req, res) => {
-    const headerUserId = req.header("X-User-Id");
-    const userId = headerUserId || req.session.userId;
-    
-    if (!userId) {
-      return res.status(401).json({ error: "Not authenticated" });
+  /**
+   * Permanent account deletion. Apple requires this to be reachable in-app for
+   * any application that supports account creation.
+   *
+   * Cascades to photos, studies and analyses via foreign keys, so every stored
+   * image is destroyed with the account.
+   */
+  app.delete("/api/auth/account", requireAuth, async (req, res) => {
+    try {
+      const userId = currentUserId(req);
+      await revokeAllSessionsForUser(userId);
+      await storage.deleteUser(userId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Account deletion error:", error);
+      res.status(500).json({ error: "Account deletion failed" });
     }
-    const user = await storage.getUser(userId);
-    if (!user) {
-      return res.status(401).json({ error: "User not found" });
-    }
-    res.json({ user });
   });
 
   app.patch("/api/auth/profile", requireAuth, async (req, res) => {
@@ -397,7 +308,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Nothing to update" });
       }
 
-      const updatedUser = await storage.updateUser(req.session.userId!, updates);
+      const updatedUser = await storage.updateUser(currentUserId(req), updates);
       res.json({ user: updatedUser });
     } catch (error) {
       console.error("Profile update error:", error);
@@ -405,18 +316,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/auth/logout", (req, res) => {
-    req.session.destroy((err) => {
-      if (err) {
-        return res.status(500).json({ error: "Logout failed" });
-      }
-      res.json({ success: true });
-    });
-  });
-
   app.get("/api/photos", requireAuth, async (req, res) => {
     try {
-      const photos = await storage.getPhotosByUserId(req.session.userId!);
+      const photos = await storage.getPhotosByUserId(currentUserId(req));
       res.json({ photos });
     } catch (error) {
       console.error("Error fetching photos:", error);
@@ -427,7 +329,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/photos/:id", requireAuth, async (req, res) => {
     try {
       const photo = await storage.getPhoto(req.params.id);
-      if (!photo || photo.userId !== req.session.userId) {
+      if (!photo || photo.userId !== currentUserId(req)) {
         return res.status(404).json({ error: "Photo not found" });
       }
       res.json({ photo });
@@ -481,7 +383,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const demographics = await detectDemographics(standardizedImageBase64);
 
       const photo = await storage.createPhoto({
-        userId: req.session.userId!,
+        userId: currentUserId(req),
         processedImageUrl: `data:image/png;base64,${processedImageBase64}`,
         processedImageBase64,
         standardizedImageBase64,
@@ -495,7 +397,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Autolink logic
       const linkablePhotos = await storage.getLinkablePhotos(
-        req.session.userId!,
+        currentUserId(req),
         photo.initials,
         photo.beforeAfter,
         photo.id
@@ -511,7 +413,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         await storage.updatePhotoLink(targetPhoto.id, photo.id);
 
         await runCohortAnalysisForLinkedPair(
-          req.session.userId!,
+          currentUserId(req),
           photo,
           targetPhoto,
           triggerStudyAnalysis,
@@ -561,7 +463,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       try {
         const result = await importZipBufferForUser({
-          userId: req.session.userId!,
+          userId: currentUserId(req),
           zipBuffer,
           logDeIdMethod,
           scheduleStudyAnalysis: triggerStudyAnalysis,
@@ -589,12 +491,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/photos/:id/linkable", requireAuth, async (req, res) => {
     try {
       const photo = await storage.getPhoto(req.params.id);
-      if (!photo || photo.userId !== req.session.userId) {
+      if (!photo || photo.userId !== currentUserId(req)) {
         return res.status(404).json({ error: "Photo not found" });
       }
 
       const linkablePhotos = await storage.getLinkablePhotos(
-        req.session.userId!,
+        currentUserId(req),
         photo.initials,
         photo.beforeAfter,
         photo.id
@@ -612,7 +514,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { linkedPhotoId } = req.body;
       const photo = await storage.getPhoto(req.params.id);
       
-      if (!photo || photo.userId !== req.session.userId) {
+      if (!photo || photo.userId !== currentUserId(req)) {
         return res.status(404).json({ error: "Photo not found" });
       }
 
@@ -620,12 +522,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       if (linkedPhotoId) {
         const linkedPhoto = await storage.getPhoto(linkedPhotoId);
-        if (!linkedPhoto || linkedPhoto.userId !== req.session.userId) {
+        if (!linkedPhoto || linkedPhoto.userId !== currentUserId(req)) {
           return res.status(404).json({ error: "Linked photo not found" });
         }
         await storage.updatePhotoLink(linkedPhotoId, photo.id);
         await runCohortAnalysisForLinkedPair(
-          req.session.userId!,
+          currentUserId(req),
           photo,
           linkedPhoto,
           triggerStudyAnalysis,
@@ -642,7 +544,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/photos/:id/pair-analysis", requireAuth, async (req, res) => {
     try {
       const photo = await storage.getPhoto(req.params.id);
-      if (!photo || photo.userId !== req.session.userId) {
+      if (!photo || photo.userId !== currentUserId(req)) {
         return res.status(404).json({ error: "Photo not found" });
       }
       if (!photo.linkedPhotoId) {
@@ -650,12 +552,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const analysis = await storage.getPairAnalysisForPair(
-        req.session.userId!,
+        currentUserId(req),
         photo.id,
         photo.linkedPhotoId,
       );
       if (!analysis) {
-        const study = await storage.findStudyForPhotoPair(req.session.userId!, photo.id, photo.linkedPhotoId);
+        const study = await storage.findStudyForPhotoPair(currentUserId(req), photo.id, photo.linkedPhotoId);
         if (study) {
           return res.status(202).json({
             error: "Pair Analysis Pending",
@@ -675,14 +577,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/photos/:id/pair-analysis-status", requireAuth, async (req, res) => {
     try {
       const photo = await storage.getPhoto(req.params.id);
-      if (!photo || photo.userId !== req.session.userId) {
+      if (!photo || photo.userId !== currentUserId(req)) {
         return res.status(404).json({ error: "Photo not found" });
       }
       if (!photo.linkedPhotoId) {
         return res.status(404).json({ error: "Photo is not linked" });
       }
 
-      const study = await storage.findStudyForPhotoPair(req.session.userId!, photo.id, photo.linkedPhotoId);
+      const study = await storage.findStudyForPhotoPair(currentUserId(req), photo.id, photo.linkedPhotoId);
       if (!study) {
         return res.json({
           linked: true,
@@ -698,7 +600,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      const analysis = await storage.getPairAnalysisForPair(req.session.userId!, photo.id, photo.linkedPhotoId);
+      const analysis = await storage.getPairAnalysisForPair(currentUserId(req), photo.id, photo.linkedPhotoId);
       const status = getStudyAnalysisStatus(study.id);
       res.json({
         linked: true,
@@ -715,7 +617,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/photos/:id/convert-to-study", requireAuth, async (req, res) => {
     try {
       const photo = await storage.getPhoto(req.params.id);
-      if (!photo || photo.userId !== req.session.userId) {
+      if (!photo || photo.userId !== currentUserId(req)) {
         return res.status(404).json({ error: "Photo Not Found" });
       }
       if (!photo.linkedPhotoId) {
@@ -723,7 +625,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const linkedPhoto = await storage.getPhoto(photo.linkedPhotoId);
-      if (!linkedPhoto || linkedPhoto.userId !== req.session.userId) {
+      if (!linkedPhoto || linkedPhoto.userId !== currentUserId(req)) {
         return res.status(404).json({ error: "Linked Photo Not Found" });
       }
 
@@ -733,18 +635,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Linked Photos Must Include One Before And One After" });
       }
 
-      const existing = await storage.getPairAnalysisForPair(req.session.userId!, beforePhoto.id, afterPhoto.id);
+      const existing = await storage.getPairAnalysisForPair(currentUserId(req), beforePhoto.id, afterPhoto.id);
       const existingStudyForPair = await storage.findStudyForPhotoPair(
-        req.session.userId!,
+        currentUserId(req),
         beforePhoto.id,
         afterPhoto.id,
       );
 
       const study =
         existingStudyForPair ??
-        (existing ? await storage.getStudyForUser(existing.studyId, req.session.userId!) : undefined) ??
+        (existing ? await storage.getStudyForUser(existing.studyId, currentUserId(req)) : undefined) ??
         (await storage.createStudy({
-          userId: req.session.userId!,
+          userId: currentUserId(req),
           title: `${beforePhoto.initials} Cohort Study`,
         }));
 
@@ -793,7 +695,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       await storage.replaceStudyMembers(study.id, normalized);
 
-      await triggerStudyAnalysis(study.id, req.session.userId!);
+      await triggerStudyAnalysis(study.id, currentUserId(req));
 
       res.json({ study, analysisStatus: getStudyAnalysisStatus(study.id) });
     } catch (error) {
@@ -805,7 +707,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/photos/:id", requireAuth, async (req, res) => {
     try {
       const photo = await storage.getPhoto(req.params.id);
-      if (!photo || photo.userId !== req.session.userId) {
+      if (!photo || photo.userId !== currentUserId(req)) {
         return res.status(404).json({ error: "Photo not found" });
       }
 
@@ -819,7 +721,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/stats", requireAuth, async (req, res) => {
     try {
-      const stats = await storage.getUserStats(req.session.userId!);
+      const stats = await storage.getUserStats(currentUserId(req));
       res.json({ stats });
     } catch (error) {
       console.error("Error fetching stats:", error);
@@ -833,7 +735,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const title = typeof req.body?.title === "string" ? req.body.title : null;
       const study = await storage.createStudy({
-        userId: req.session.userId!,
+        userId: currentUserId(req),
         title,
       });
       res.json({ study });
@@ -845,7 +747,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/studies", requireAuth, async (req, res) => {
     try {
-      const list = await storage.listStudies(req.session.userId!);
+      const list = await storage.listStudies(currentUserId(req));
       res.json({ studies: list });
     } catch (error) {
       console.error("List studies error:", error);
@@ -855,7 +757,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/studies/:id", requireAuth, async (req, res) => {
     try {
-      const study = await storage.getStudyForUser(req.params.id, req.session.userId!);
+      const study = await storage.getStudyForUser(req.params.id, currentUserId(req));
       if (!study) {
         return res.status(404).json({ error: "Study not found" });
       }
@@ -878,7 +780,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/studies/:id", requireAuth, async (req, res) => {
     try {
-      const ok = await storage.deleteStudyForUser(req.params.id, req.session.userId!);
+      const ok = await storage.deleteStudyForUser(req.params.id, currentUserId(req));
       if (!ok) {
         return res.status(404).json({ error: "Study not found" });
       }
@@ -899,7 +801,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.put("/api/studies/:id/members", requireAuth, async (req, res) => {
     try {
-      const study = await storage.getStudyForUser(req.params.id, req.session.userId!);
+      const study = await storage.getStudyForUser(req.params.id, currentUserId(req));
       if (!study) {
         return res.status(404).json({ error: "Study not found" });
       }
@@ -914,7 +816,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Invalid body", details: parsed.error.flatten() });
       }
 
-      const userId = req.session.userId!;
+      const userId = currentUserId(req);
       for (const e of parsed.data.entries) {
         const photo = await storage.getPhoto(e.photoId);
         if (!photo || photo.userId !== userId) {
@@ -974,7 +876,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ error: "Exactly one item must have beforeAfter \"before\"" });
       }
 
-      const userId = req.session.userId!;
+      const userId = currentUserId(req);
       const study = await storage.createStudy({
         userId,
         title: parsed.data.title ?? null,
@@ -1030,12 +932,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/studies/:id/analyze", requireAuth, async (req, res) => {
     try {
-      const study = await storage.getStudyForUser(req.params.id, req.session.userId!);
+      const study = await storage.getStudyForUser(req.params.id, currentUserId(req));
       if (!study) {
         return res.status(404).json({ error: "Study not found" });
       }
 
-      const status = await triggerStudyAnalysis(req.params.id, req.session.userId!);
+      const status = await triggerStudyAnalysis(req.params.id, currentUserId(req));
       res.status(202).json({
         accepted: true,
         analysisStatus: status,
@@ -1049,7 +951,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/studies/:id/analysis-status", requireAuth, async (req, res) => {
     try {
-      const study = await storage.getStudyForUser(req.params.id, req.session.userId!);
+      const study = await storage.getStudyForUser(req.params.id, currentUserId(req));
       if (!study) {
         return res.status(404).json({ error: "Study not found" });
       }
@@ -1070,7 +972,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/studies/:id/analysis", requireAuth, async (req, res) => {
     try {
-      const study = await storage.getStudyForUser(req.params.id, req.session.userId!);
+      const study = await storage.getStudyForUser(req.params.id, currentUserId(req));
       if (!study) {
         return res.status(404).json({ error: "Study not found" });
       }
@@ -1085,7 +987,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/studies/:id/cohort-stats", requireAuth, async (req, res) => {
     try {
-      const study = await storage.getStudyForUser(req.params.id, req.session.userId!);
+      const study = await storage.getStudyForUser(req.params.id, currentUserId(req));
       if (!study) {
         return res.status(404).json({ error: "Study not found" });
       }
@@ -1135,7 +1037,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/studies/:id/export-bundle", requireAuth, async (req, res) => {
     try {
-      const bundle = await buildStudyExportBundle(req.session.userId!, req.params.id);
+      const bundle = await buildStudyExportBundle(currentUserId(req), req.params.id);
       const filename = `cohort-study-${req.params.id.slice(0, 8)}.json`;
       res.setHeader("Content-Type", "application/json; charset=utf-8");
       res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
@@ -1152,7 +1054,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/export/cohort-studies-bundle", requireAuth, async (req, res) => {
     try {
-      const bundle = await buildAllStudiesExportBundle(req.session.userId!);
+      const bundle = await buildAllStudiesExportBundle(currentUserId(req));
       const filename = `cohort-studies-all-${new Date().toISOString().slice(0, 10)}.json`;
       res.setHeader("Content-Type", "application/json; charset=utf-8");
       res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
@@ -1165,7 +1067,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/export/photos-cohort", requireAuth, async (req, res) => {
     try {
-      const photoList = await storage.getPhotosByUserId(req.session.userId!);
+      const photoList = await storage.getPhotosByUserId(currentUserId(req));
       const lines = [
         [
           "photo_id",
