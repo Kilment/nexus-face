@@ -1,17 +1,16 @@
-import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 import { createCanvas, loadImage } from "canvas";
 
-/** Lazy: deterministic standardization must work with no OpenAI key present. */
-let client: OpenAI | null = null;
-function openaiClient(): OpenAI {
+/** Lazy: deterministic standardization must work with no API key present. */
+let client: Anthropic | null = null;
+function anthropicClient(): Anthropic {
   if (!client) {
-    client = new OpenAI({
-      baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-      apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-    });
+    client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   }
   return client;
 }
+
+const ANALYSIS_MODEL = process.env.COHORT_VISION_MODEL ?? "claude-opus-4-5-20251101";
 
 const STANDARD_WIDTH = 512;
 const STANDARD_HEIGHT = 512;
@@ -34,19 +33,12 @@ interface ImageAnalysis {
   };
 }
 
-async function analyzeImage(imageBase64: string): Promise<ImageAnalysis> {
-  try {
-    const response = await openaiClient().chat.completions.create({
-      model: "gpt-4o",
-      messages: [
-        {
-          role: "system",
-          content: `You are an image analysis expert. Analyze the provided portrait photo and assess its technical qualities for standardization.
-          
+const ANALYSIS_PROMPT = `You are an image analysis expert. Analyze the provided portrait photo and assess its technical qualities for standardization.
+
 Respond ONLY with a JSON object (no markdown, no explanation) with these exact fields:
 {
   "brightness": "too_dark" | "too_bright" | "normal",
-  "contrast": "low" | "high" | "normal", 
+  "contrast": "low" | "high" | "normal",
   "zoom": "too_close" | "too_far" | "normal",
   "centering": "off_center_left" | "off_center_right" | "off_center_up" | "off_center_down" | "centered",
   "adjustments": {
@@ -60,16 +52,22 @@ Respond ONLY with a JSON object (no markdown, no explanation) with these exact f
 The goal is to standardize photos for consistent medical/clinical comparison. Consider:
 - Face should be centered and fill ~60-70% of the frame vertically
 - Lighting should be even and neutral
-- Good contrast to show facial details clearly`
-        },
+- Good contrast to show facial details clearly`;
+
+async function analyzeImage(imageBase64: string): Promise<ImageAnalysis> {
+  try {
+    const response = await anthropicClient().messages.create({
+      model: ANALYSIS_MODEL,
+      max_tokens: 500,
+      temperature: 0,
+      system: ANALYSIS_PROMPT,
+      messages: [
         {
           role: "user",
           content: [
             {
-              type: "image_url",
-              image_url: {
-                url: `data:image/png;base64,${imageBase64}`,
-              },
+              type: "image",
+              source: { type: "base64", media_type: "image/png", data: imageBase64 },
             },
             {
               type: "text",
@@ -78,10 +76,13 @@ The goal is to standardize photos for consistent medical/clinical comparison. Co
           ],
         },
       ],
-      max_tokens: 500,
     });
 
-    const content = response.choices[0]?.message?.content || "{}";
+    const content =
+      response.content
+        .filter((b): b is Anthropic.TextBlock => b.type === "text")
+        .map((b) => b.text)
+        .join("") || "{}";
     const jsonMatch = content.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       return JSON.parse(jsonMatch[0]) as ImageAnalysis;

@@ -1,0 +1,237 @@
+{
+  "note": "Redacted validation summary. Per-pair detail is withheld because folder names and filenames in this cohort encode subject identifiers. Regenerate the full report locally with scripts/validate_pipeline.py.",
+  "generatedAt": "2026-08-01T18:19:48Z",
+  "model": "claude-opus-4-5-20251101",
+  "rubricVersion": "1.1.0",
+  "preprocessingVersion": "deid+standardize512-deterministic@1.1.0",
+  "pairsTested": 8,
+  "repeatability": {
+    "replicatesPerPair": 3,
+    "pairsTested": 8,
+    "meanSdByField": {
+      "deltaPredictedFacialAge": 0.2887,
+      "deltaWrinkles": 0.5774,
+      "deltaSubclinicalWrinkles": 0.7939,
+      "perceivedSkinFirmnessDelta": 0.7217,
+      "perceivedDensityDelta": 0.433,
+      "perceivedFacialFullnessDelta": 0.1443,
+      "perceivedGonialAngleDelta": 0.2887,
+      "crowsFeetDelta": 0.5052,
+      "nasolabialFoldsDelta": 0.6495,
+      "foreheadLinesDelta": 0.6495,
+      "glabellarLinesDelta": 0.5774,
+      "perioralLinesDelta": 0.6495,
+      "underEyeHollowsDelta": 0.7217,
+      "jawlineLaxityDelta": 0.991
+    }
+  },
+  "nullPairs": {
+    "tolerance": 0.5,
+    "pairsTested": 8,
+    "failureCount": 0,
+    "biasByField": {
+      "deltaPredictedFacialAge": {
+        "n": 8,
+        "mean": 0.0,
+        "sd": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "deltaWrinkles": {
+        "n": 8,
+        "mean": 0.0,
+        "sd": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "deltaSubclinicalWrinkles": {
+        "n": 8,
+        "mean": 0.0,
+        "sd": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "perceivedSkinFirmnessDelta": {
+        "n": 8,
+        "mean": 0.0,
+        "sd": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "perceivedDensityDelta": {
+        "n": 8,
+        "mean": 0.0,
+        "sd": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "perceivedFacialFullnessDelta": {
+        "n": 8,
+        "mean": 0.0,
+        "sd": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "perceivedGonialAngleDelta": {
+        "n": 8,
+        "mean": 0.0,
+        "sd": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "crowsFeetDelta": {
+        "n": 8,
+        "mean": 0.0,
+        "sd": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "nasolabialFoldsDelta": {
+        "n": 8,
+        "mean": 0.0,
+        "sd": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "foreheadLinesDelta": {
+        "n": 8,
+        "mean": 0.0,
+        "sd": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "glabellarLinesDelta": {
+        "n": 8,
+        "mean": 0.0,
+        "sd": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "perioralLinesDelta": {
+        "n": 8,
+        "mean": 0.0,
+        "sd": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "underEyeHollowsDelta": {
+        "n": 8,
+        "mean": 0.0,
+        "sd": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      },
+      "jawlineLaxityDelta": {
+        "n": 8,
+        "mean": 0.0,
+        "sd": 0.0,
+        "min": 0.0,
+        "max": 0.0
+      }
+    }
+  },
+  "orderSwap": {
+    "pairsTested": 8,
+    "residualByField": {
+      "deltaPredictedFacialAge": {
+        "n": 8,
+        "mean": -1.625,
+        "sd": 1.8468,
+        "min": -4.0,
+        "max": 0.0
+      },
+      "deltaWrinkles": {
+        "n": 8,
+        "mean": -3.625,
+        "sd": 3.9619,
+        "min": -11.0,
+        "max": 1.0
+      },
+      "deltaSubclinicalWrinkles": {
+        "n": 8,
+        "mean": -4.0,
+        "sd": 4.9857,
+        "min": -12.0,
+        "max": 1.0
+      },
+      "perceivedSkinFirmnessDelta": {
+        "n": 8,
+        "mean": 5.5,
+        "sd": 6.5027,
+        "min": 0.0,
+        "max": 16.0
+      },
+      "perceivedDensityDelta": {
+        "n": 8,
+        "mean": 6.0,
+        "sd": 4.6904,
+        "min": 0.0,
+        "max": 15.0
+      },
+      "perceivedFacialFullnessDelta": {
+        "n": 8,
+        "mean": 6.625,
+        "sd": 7.6707,
+        "min": -5.0,
+        "max": 20.0
+      },
+      "perceivedGonialAngleDelta": {
+        "n": 8,
+        "mean": 2.25,
+        "sd": 2.0529,
+        "min": 0.0,
+        "max": 5.0
+      },
+      "crowsFeetDelta": {
+        "n": 8,
+        "mean": -3.25,
+        "sd": 3.6154,
+        "min": -10.0,
+        "max": 1.0
+      },
+      "nasolabialFoldsDelta": {
+        "n": 8,
+        "mean": -3.375,
+        "sd": 5.2355,
+        "min": -12.0,
+        "max": 2.0
+      },
+      "foreheadLinesDelta": {
+        "n": 8,
+        "mean": 0.125,
+        "sd": 3.5229,
+        "min": -4.0,
+        "max": 7.0
+      },
+      "glabellarLinesDelta": {
+        "n": 8,
+        "mean": -1.25,
+        "sd": 4.432,
+        "min": -10.0,
+        "max": 4.0
+      },
+      "perioralLinesDelta": {
+        "n": 8,
+        "mean": -2.0,
+        "sd": 3.1168,
+        "min": -7.0,
+        "max": 1.0
+      },
+      "underEyeHollowsDelta": {
+        "n": 8,
+        "mean": -3.125,
+        "sd": 4.3895,
+        "min": -10.0,
+        "max": 2.0
+      },
+      "jawlineLaxityDelta": {
+        "n": 8,
+        "mean": -3.375,
+        "sd": 5.9266,
+        "min": -13.0,
+        "max": 3.0
+      }
+    },
+    "interpretation": "Non-zero residual means the model rates whichever image it sees second as improved. Mitigated in production by order-balanced scoring (score_pairs.py --order-balanced, on by default), which antisymmetrizes forward and reverse."
+  }
+}

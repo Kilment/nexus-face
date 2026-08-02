@@ -5,6 +5,7 @@ import {
   type InterventionRow,
 } from "./cohort-stats";
 import { loadCohortReference } from "./cohort-reference";
+import { getVisionModelId } from "./vision-rubric";
 import { pairMetricsSchema } from "@shared/cohort-metrics";
 import type { Photo } from "@shared/schema";
 
@@ -111,7 +112,7 @@ export async function buildStudyExportBundle(userId: string, studyId: string) {
 
   const { reference, loadError } = loadCohortReference();
   const aggregates = aggregateByMetric(interventionRows);
-  const interventionRankings = rankInterventions(interventionRows, reference);
+  const interventionRankings = rankInterventions(interventionRows, reference, getVisionModelId());
 
   const pairwiseMetrics = analyses.map((row) => {
     const parsed = pairMetricsSchema.safeParse(row.metrics);

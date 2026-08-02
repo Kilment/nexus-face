@@ -1,4 +1,4 @@
-import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 import { createCanvas, loadImage } from "canvas";
 import {
   pairMetricsSchema,
@@ -8,30 +8,30 @@ import {
 } from "@shared/cohort-metrics";
 import rubricSpec from "@shared/rubric.v1.1.json";
 
-/** Lazy: importing this module must not require an OpenAI key. */
-let client: OpenAI | null = null;
-function openaiClient(): OpenAI {
+/** Lazy: importing this module must not require an API key. */
+let client: Anthropic | null = null;
+function anthropicClient(): Anthropic {
   if (!client) {
-    client = new OpenAI({
-      baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-      apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-    });
+    client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   }
   return client;
 }
 
 /**
- * Pinned, dated snapshot. A floating alias ("gpt-4o") silently re-points to a
- * new model, which shifts every score and invalidates comparison against the
- * frozen cohort reference. Override only with another dated snapshot, and
- * rebuild the reference when you do.
+ * Pinned, dated snapshot — and it MUST match the model that built the frozen
+ * cohort reference, or every composite comes back N/A by design.
+ *
+ * A floating alias ("claude-opus-5") silently re-points to a new model, which
+ * shifts every score and invalidates the reference. Override only with another
+ * dated snapshot, and rebuild the reference when you do.
  */
-const DEFAULT_VISION_MODEL = "gpt-4o-2024-11-20";
+const DEFAULT_VISION_MODEL = "claude-opus-4-5-20251101";
 const VISION_MODEL = process.env.COHORT_VISION_MODEL ?? DEFAULT_VISION_MODEL;
 
-if (/^(gpt-4o|gpt-4o-mini|gpt-4-turbo|chatgpt-4o-latest)$/.test(VISION_MODEL)) {
+// Anything not ending in a YYYYMMDD date is an alias.
+if (!/-\d{8}$/.test(VISION_MODEL)) {
   console.warn(
-    `[vision-rubric] COHORT_VISION_MODEL="${VISION_MODEL}" is a floating alias. ` +
+    `[vision-rubric] COHORT_VISION_MODEL="${VISION_MODEL}" is not a dated snapshot. ` +
       "Scores will drift when the alias re-points. Pin a dated snapshot " +
       `(e.g. "${DEFAULT_VISION_MODEL}") and rebuild the cohort reference.`,
   );
@@ -258,8 +258,8 @@ export async function scorePairWithVisionRubric(
   afterBase64: string,
   options: { harmonizeLighting?: boolean; maxAttempts?: number } = {},
 ): Promise<PairScoreResult> {
-  if (!process.env.AI_INTEGRATIONS_OPENAI_API_KEY) {
-    throw new Error("Vision rubric requires AI_INTEGRATIONS_OPENAI_API_KEY");
+  if (!process.env.ANTHROPIC_API_KEY) {
+    throw new Error("Vision rubric requires ANTHROPIC_API_KEY");
   }
 
   const { harmonizeLighting = true, maxAttempts = 3 } = options;
@@ -286,29 +286,32 @@ export async function scorePairWithVisionRubric(
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      const response = await openaiClient().chat.completions.create({
+      // Mirrors scripts/score_pairs.py exactly: same rubric, same system
+      // prompt, same image order, temperature 0.
+      const response = await anthropicClient().messages.create({
         model: VISION_MODEL,
-        temperature: 0,
         max_tokens: 1500,
-        response_format: { type: "json_object" },
+        temperature: 0,
+        system: rubricSpec.prompt,
         messages: [
-          { role: "system", content: rubricSpec.prompt },
           {
             role: "user",
             content: [
               { type: "text", text: rubricSpec.userTurnText },
               {
-                type: "image_url",
-                image_url: {
-                  url: `data:image/png;base64,${comparisonBeforeBase64}`,
-                  detail: "high",
+                type: "image",
+                source: {
+                  type: "base64",
+                  media_type: "image/png",
+                  data: comparisonBeforeBase64,
                 },
               },
               {
-                type: "image_url",
-                image_url: {
-                  url: `data:image/png;base64,${comparisonAfterBase64}`,
-                  detail: "high",
+                type: "image",
+                source: {
+                  type: "base64",
+                  media_type: "image/png",
+                  data: comparisonAfterBase64,
                 },
               },
             ],
@@ -316,7 +319,10 @@ export async function scorePairWithVisionRubric(
         ],
       });
 
-      const rawText = response.choices[0]?.message?.content ?? "";
+      const rawText = response.content
+        .filter((b): b is Anthropic.TextBlock => b.type === "text")
+        .map((b) => b.text)
+        .join("");
       const jsonMatch = rawText.match(/\{[\s\S]*\}/);
       const jsonStr = jsonMatch ? jsonMatch[0] : rawText;
 

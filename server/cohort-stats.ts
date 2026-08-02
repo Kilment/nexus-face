@@ -1,4 +1,9 @@
-import { SUB_REGION_KEYS, type PairMetrics } from "@shared/cohort-metrics";
+import {
+  SUB_REGION_KEYS,
+  PREPROCESSING_VERSION,
+  RUBRIC_VERSION,
+  type PairMetrics,
+} from "@shared/cohort-metrics";
 import {
   computeImprovementScore,
   type CohortReference,
@@ -168,6 +173,7 @@ export function aggregateByMetric(
 export function rankInterventions(
   rows: InterventionRow[],
   reference: CohortReference | null,
+  modelId: string,
 ): InterventionRanking[] {
   const byLabel = new Map<string, InterventionRow[]>();
   for (const row of rows) {
@@ -183,7 +189,11 @@ export function rankInterventions(
     const composites: number[] = [];
     let unscoreable = 0;
     for (const row of group) {
-      const score = computeImprovementScore(row.metrics, reference);
+      const score = computeImprovementScore(row.metrics, reference, {
+        rubricVersion: RUBRIC_VERSION,
+        preprocessingVersion: PREPROCESSING_VERSION,
+        modelId,
+      });
       if (score.composite === null) unscoreable += 1;
       else composites.push(score.composite);
     }

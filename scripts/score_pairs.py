@@ -96,6 +96,8 @@ CSV_HEADER = [
     "generativeDeIdUsed",
     "replicates",
     "replicateAgeSd",
+    "orderBalanced",
+    "positionBiasAge",
     "scoredAt",
     "pipelineNotes",
     "warnings",
@@ -242,12 +244,83 @@ def score_once(client, model: str, before_b64: str, after_b64: str) -> tuple[dic
     return metrics, find_self_consistency_violations(metrics)
 
 
+# Fields reported as a plain delta (no before/after counterpart).
+_PURE_DELTA_FIELDS = [
+    "deltaPredictedFacialAge",
+    "deltaWrinkles",
+    "deltaSubclinicalWrinkles",
+    "perceivedSkinFirmnessDelta",
+    "perceivedDensityDelta",
+    "perceivedFacialFullnessDelta",
+    "perceivedGonialAngleDelta",
+]
+
+# (before, after) pairs whose meaning swaps when the images are swapped.
+_BEFORE_AFTER_FIELDS = [
+    ("predictedFacialAgeBefore", "predictedFacialAgeAfter"),
+    ("wrinklesBefore", "wrinklesAfter"),
+    ("subclinicalWrinklesBefore", "subclinicalWrinklesAfter"),
+]
+
+
+def _mid(a: Optional[float], b: Optional[float]) -> Optional[float]:
+    if a is None or b is None:
+        return None
+    return (a + b) / 2
+
+
+def _antisymmetric(fwd: Optional[float], rev: Optional[float]) -> Optional[float]:
+    """(forward - reverse) / 2 — cancels any constant position bias."""
+    if fwd is None or rev is None:
+        return None
+    return (fwd - rev) / 2
+
+
+def combine_order_balanced(fwd: dict, rev: dict) -> dict:
+    """
+    Merge a forward (before, after) and a reverse (after, before) scoring.
+
+    Validation showed the model systematically rates whichever image it sees
+    SECOND as improved, across every rubric field. Because "after" is always
+    second, that bias inflates every result in the improvement direction.
+
+    Antisymmetrizing removes it exactly: with a true effect D and a constant
+    position bias B, forward observes D - B and reverse observes -D - B, so
+    (forward - reverse) / 2 == D. The discarded half, (forward + reverse) / 2,
+    estimates B and is kept as a diagnostic.
+    """
+    out: dict = {}
+
+    for key in _PURE_DELTA_FIELDS:
+        out[key] = _antisymmetric(fwd.get(key), rev.get(key))
+
+    # Reverse's "before" describes the after-image, and vice versa.
+    for before_key, after_key in _BEFORE_AFTER_FIELDS:
+        out[before_key] = _mid(fwd.get(before_key), rev.get(after_key))
+        out[after_key] = _mid(fwd.get(after_key), rev.get(before_key))
+
+    for region in SUB_REGIONS:
+        out[f"{region}Delta"] = _antisymmetric(
+            fwd.get(f"{region}Delta"), rev.get(f"{region}Delta")
+        )
+        out[f"{region}Before"] = _mid(fwd.get(f"{region}Before"), rev.get(f"{region}After"))
+        out[f"{region}After"] = _mid(fwd.get(f"{region}After"), rev.get(f"{region}Before"))
+
+    out["confidence"] = _mid(fwd.get("confidence"), rev.get("confidence"))
+    out["notes"] = fwd.get("notes", "")
+
+    f_age, r_age = fwd.get("deltaPredictedFacialAge"), rev.get("deltaPredictedFacialAge")
+    out["_positionBiasAge"] = None if f_age is None or r_age is None else (f_age + r_age) / 2
+    return out
+
+
 def score_pair(
     client,
     model: str,
     pair: Pair,
     replicates: int,
     max_retries: int = 4,
+    order_balanced: bool = True,
 ) -> tuple[dict, list[str]]:
     """
     Score a pair, optionally several times. With replicates > 1 the per-field
@@ -264,6 +337,14 @@ def score_pair(
         for attempt in range(max_retries):
             try:
                 metrics, consistency = score_once(client, model, before_b64, after_b64)
+                if order_balanced:
+                    # Harmonization targets the pair mean, so swapping the
+                    # arguments yields the same pixels in the other order.
+                    reverse, rev_consistency = score_once(
+                        client, model, after_b64, before_b64
+                    )
+                    consistency = consistency + rev_consistency
+                    metrics = combine_order_balanced(metrics, reverse)
                 if consistency:
                     if attempt < max_retries - 1:
                         raise ValueError(f"Self-inconsistent: {'; '.join(consistency)}")
@@ -328,6 +409,7 @@ def pair_to_row(
     model: str,
     replicates: int,
     warnings: list[str],
+    order_balanced: bool,
     error: str = "",
 ) -> dict:
     row = {
@@ -345,6 +427,8 @@ def pair_to_row(
         "generativeDeIdUsed": "true" if pair.generativeDeIdUsed else "false",
         "replicates": replicates,
         "replicateAgeSd": fmt(metrics.get("_replicateAgeSd")) if metrics else NOT_AVAILABLE,
+        "orderBalanced": "true" if order_balanced else "false",
+        "positionBiasAge": fmt(metrics.get("_positionBiasAge")) if metrics else NOT_AVAILABLE,
         "scoredAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "pipelineNotes": f"rubric={RUBRIC_VERSION}; {SCRIPT_VERSION}; model={model}",
         "warnings": "; ".join(warnings),
@@ -378,8 +462,16 @@ def main() -> int:
         default=1,
         help="Score each pair N times; reports per-field median and the age SD",
     )
+    parser.add_argument(
+        "--no-order-balanced",
+        action="store_true",
+        help="Disable counterbalancing. Validation showed the model rates whichever "
+             "image it sees second as improved, across every field; leaving this on "
+             "cancels that bias at the cost of a second call per pair.",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Resolve files only; no API calls")
     args = parser.parse_args()
+    order_balanced = not args.no_order_balanced
 
     if FLOATING_ALIAS.match(args.model):
         print(
@@ -399,6 +491,8 @@ def main() -> int:
     print(f"Preprocessing:    {manifest['preprocessingVersion']}")
     print(f"Rubric:           {RUBRIC_VERSION}")
     print(f"Model:            {args.model}")
+    print(f"Order-balanced:   {order_balanced}"
+          f"{'' if order_balanced else '  (position bias NOT corrected)'}")
     print(f"Resolved pairs:   {len(pairs)}")
     print(f"Skipped:          {len(skipped)}")
     for s in skipped:
@@ -438,7 +532,9 @@ def main() -> int:
 
     def work(pair: Pair):
         try:
-            metrics, warnings = score_pair(client, args.model, pair, args.replicates)
+            metrics, warnings = score_pair(
+                client, args.model, pair, args.replicates, order_balanced=order_balanced
+            )
             return pair, metrics, warnings, ""
         except Exception as e:  # noqa: BLE001
             return pair, None, [], str(e)
@@ -449,7 +545,10 @@ def main() -> int:
             pair, metrics, warnings, err = fut.result()
             append_row(
                 out_path,
-                pair_to_row(pair, metrics, args.model, args.replicates, warnings, error=err),
+                pair_to_row(
+                    pair, metrics, args.model, args.replicates, warnings,
+                    order_balanced, error=err,
+                ),
                 write_lock,
             )
             if err:

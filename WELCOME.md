@@ -36,7 +36,8 @@ contents deliberately.
 - **Node.js ≥ 20** — `node -v`
 - **Python ≥ 3.9** — `python3 --version`
 - **PostgreSQL** — only for the mobile app; the research pipeline needs no database
-- An **OpenAI API key** (standardization) and an **Anthropic API key** (batch scoring)
+- An **Anthropic API key** — the only key needed. Both the app and the batch
+  scorer use it, so both produce scores comparable against the same reference.
 
 ```bash
 git clone <your-fork> && cd nexus-face
@@ -263,12 +264,11 @@ and its outputs are model estimates of *appearance*, not measurements of tissue.
   folder or file names — they flow into the results CSV.
 - `scripts/results.csv` is gitignored **because it carries subject identifiers**.
   Keep it that way.
-- **De-identification runs before any image leaves your machine** — with one
-  exception. If the local face detector fails, [`server/openai.ts`](server/openai.ts)
-  falls back to sending the **original, identifiable** photo to OpenAI to
-  describe. Images that hit this path are excluded from the cohort afterwards,
-  but the upload has already happened. On real patient data, disable that
-  fallback.
+- **De-identification is local-only, with no remote fallback.** An earlier
+  version, when local detection failed, uploaded the original identifiable
+  photograph to a third party to be described and then synthesized a
+  replacement. That path is removed. Detection now either succeeds locally or
+  throws, so a photo that cannot be de-identified never leaves your machine.
 - Facial images are HIPAA-enumerated identifiers. Masking eyes and removing
   hair is **not** a recognized Safe Harbor de-identification method.
 - Confirm your own IRB or ethics approval before running this on patient
@@ -285,7 +285,7 @@ and its outputs are model estimates of *appearance*, not measurements of tissue.
 | `N/A`, reason names a model mismatch | Model changed since the reference was frozen; re-pin or rebuild |
 | `Refusing to build: only N eligible pairs` | Fewer than 30 usable pairs — §5 |
 | `EXCLUDE ... generative de-id fallback` | Local face detection failed; check photo quality and framing |
-| `Photo standardization analysis failed` | OpenAI key missing or invalid |
+| `Photo standardization analysis failed` | Only in `--ai-guided` mode; check `ANTHROPIC_API_KEY` |
 | `preprocessing version mismatch` from `score_pairs.py` | Re-run `standardize-cohort.ts` |
 
 ---

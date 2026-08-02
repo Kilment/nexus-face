@@ -158,6 +158,12 @@ export function percentileAgainst(sortedAscending: number[], value: number): num
 export interface ScoreContext {
   rubricVersion: string;
   preprocessingVersion: string;
+  /**
+   * The model that produced these metrics. Different models place the same
+   * pair at different points on the scale, so standardizing one model's output
+   * against another's distribution is not a valid z-score.
+   */
+  modelId: string;
 }
 
 /**
@@ -169,10 +175,7 @@ export interface ScoreContext {
 export function computeImprovementScore(
   metrics: PairMetrics,
   reference: CohortReference | null,
-  context: ScoreContext = {
-    rubricVersion: RUBRIC_VERSION,
-    preprocessingVersion: PREPROCESSING_VERSION,
-  },
+  context: ScoreContext,
 ): ImprovementScore {
   const raw = computeRawDomains(metrics);
 
@@ -220,6 +223,23 @@ export function computeImprovementScore(
       unavailableReason:
         `Reference was built on images preprocessed as ${reference.preprocessingVersion} but ` +
         `this pair used ${context.preprocessingVersion}. Scores are not comparable.`,
+      reference: { referenceVersion: reference.referenceVersion, sampleSize: reference.sampleSize },
+    };
+  }
+
+  // Mirrors the same gate in scripts/compute_improvement_score.py. Without it a
+  // pair scored by one model gets z-scored against another model's
+  // distribution, which looks authoritative and means nothing.
+  if (reference.modelId !== context.modelId) {
+    return {
+      domains: emptyDomains(),
+      composite: null,
+      percentile: null,
+      unavailableReason:
+        `Reference was built with model ${reference.modelId} but this pair was scored ` +
+        `with ${context.modelId}. Different models place the same pair differently on ` +
+        "the scale, so this z-score would not be meaningful. Rebuild the reference " +
+        "with the scoring model, or score with the reference model.",
       reference: { referenceVersion: reference.referenceVersion, sampleSize: reference.sampleSize },
     };
   }

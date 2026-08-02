@@ -151,7 +151,8 @@ reported scores are no longer comparable, and the reference must be rebuilt.
 - Node.js ≥ 20
 - Python ≥ 3.9 (`anthropic`, `pillow`, `numpy`)
 - PostgreSQL — app only; the research pipeline needs no database
-- OpenAI API key (standardization) and Anthropic API key (batch scoring)
+- Anthropic API key — the only key the pipeline needs; both the app and the
+  batch scorer use it, so their scores are comparable against the same reference
 - AWS Rekognition credentials — optional; without them demographics are `N/A`
 
 Face detection runs on the TensorFlow **WASM** backend. `@tensorflow/tfjs-node`
@@ -171,9 +172,8 @@ photographs:
 - Use opaque study IDs — no MRNs, names, initials, or dates of service in
   folder or file names
 - `scripts/results.csv` is gitignored because it carries subject identifiers
-- Disable the generative de-identification fallback in
-  [`server/openai.ts`](server/openai.ts), which sends the **original**
-  photograph to a third party when local detection fails
+- De-identification is local-only. There is no remote fallback: a photograph
+  that cannot be de-identified on this machine never leaves it
 - Confirm your own IRB or ethics approval
 
 See [WELCOME.md §9](WELCOME.md#9-handling-patient-data).
@@ -182,5 +182,6 @@ See [WELCOME.md §9](WELCOME.md#9-handling-patient-data).
 
 ## License
 
-No license has been chosen yet. Until one is added, default copyright applies
-and others may not reuse this code. Add a `LICENSE` file before publishing.
+[MIT](LICENSE). Note the warranty disclaimer: this is exploratory research
+tooling, not a medical device, and carries no fitness guarantee for clinical
+use.

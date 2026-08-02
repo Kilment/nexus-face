@@ -186,7 +186,7 @@ export type ZipImportOptions = {
   userId: string;
   zipBuffer: Buffer;
   /** Optional (server passes metrics-aware logger). */
-  logDeIdMethod?: (context: string, method: "FaceApi" | "OpenAIFallback", extra?: string) => void;
+  logDeIdMethod?: (context: string, method: "FaceApi") => void;
   scheduleStudyAnalysis: (studyId: string, userId: string) => void | Promise<unknown>;
 };
 
@@ -249,11 +249,7 @@ export async function importZipBufferForUser(options: ZipImportOptions): Promise
 
     const rawImageBase64 = await resolved.file.async("base64");
     const deidResult = await deIdentifyWithFallback(rawImageBase64);
-    logDeIdMethod?.(
-      `ZipImport:${item.fileName}`,
-      deidResult.method,
-      deidResult.fallbackReason ? `FallbackReason=${deidResult.fallbackReason}` : undefined,
-    );
+    logDeIdMethod?.(`ZipImport:${item.fileName}`, deidResult.method);
     const standardizedImageBase64 = await standardizePhoto(deidResult.processedImageBase64);
     const demographics = await detectDemographics(standardizedImageBase64);
 

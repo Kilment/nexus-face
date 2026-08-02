@@ -130,6 +130,7 @@ export async function analyzeStudy(
       const improvementScore = computeImprovementScore(metrics, reference, {
         rubricVersion,
         preprocessingVersion: PREPROCESSING_VERSION,
+        modelId,
       });
 
       const saved = await storage.createPairAnalysis({

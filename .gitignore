@@ -53,7 +53,8 @@ app-example
 # ---------------------------------------------------------------------------
 scripts/results.csv
 scripts/logs/
-scripts/reference/validation-report.json
+# (the redacted summary IS committed; the raw report is not)
+scripts/reference/validation-report.raw.json
 *_standardized/
 _deid_qa/
 attached_assets/

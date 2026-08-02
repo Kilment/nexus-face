@@ -11,6 +11,7 @@ import { insertPhotoSchema } from "@shared/schema";
 import { detectDemographics } from "./rekognition";
 import { analyzeStudy } from "./study-analysis";
 import { loadCohortReference } from "./cohort-reference";
+import { getVisionModelId } from "./vision-rubric";
 import { buildAllStudiesExportBundle, buildStudyExportBundle } from "./cohort-export";
 import {
   aggregateByMetric,
@@ -125,7 +126,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const deIdMetrics = {
     total: 0,
     faceApi: 0,
-    openAiFallback: 0,
   };
 
   type AnalysisState = "idle" | "running" | "complete" | "failed";
@@ -197,20 +197,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return getStudyAnalysisStatus(studyId);
   }
 
-  function logDeIdMethod(context: string, method: "FaceApi" | "OpenAIFallback", extra?: string) {
+  function logDeIdMethod(context: string, method: "FaceApi") {
     deIdMetrics.total += 1;
-    if (method === "FaceApi") {
-      deIdMetrics.faceApi += 1;
-    } else {
-      deIdMetrics.openAiFallback += 1;
-    }
-    const fallbackRate =
-      deIdMetrics.total > 0
-        ? ((deIdMetrics.openAiFallback / deIdMetrics.total) * 100).toFixed(1)
-        : "0.0";
-    const suffix = extra ? ` | ${extra}` : "";
+    deIdMetrics.faceApi += 1;
     console.log(
-      `[DEID] ${context} | Method=${method} | Total=${deIdMetrics.total} | FaceApi=${deIdMetrics.faceApi} | OpenAIFallback=${deIdMetrics.openAiFallback} | FallbackRate=${fallbackRate}%${suffix}`,
+      `[DEID] ${context} | Method=${method} | Total=${deIdMetrics.total} | FaceApi=${deIdMetrics.faceApi}`,
     );
   }
 
@@ -454,16 +445,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const result = await deIdentifyWithFallback(imageBase64);
-      logDeIdMethod(
-        "SingleProcess",
-        result.method,
-        result.fallbackReason ? `FallbackReason=${result.fallbackReason}` : undefined,
-      );
+      logDeIdMethod("SingleProcess", result.method);
       res.json({
         processedImageBase64: result.processedImageBase64,
         deIdPipeline: getDeIdPipelineInfo(),
         deIdMethod: result.method,
-        deIdFallbackReason: result.fallbackReason ?? null,
       });
     } catch (error) {
       console.error("Error processing image:", error);
@@ -1122,7 +1108,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const { reference, loadError } = loadCohortReference();
       const aggregates = aggregateByMetric(interventionRows);
-      const rankings = rankInterventions(interventionRows, reference);
+      const rankings = rankInterventions(interventionRows, reference, getVisionModelId());
 
       res.json({
         study,

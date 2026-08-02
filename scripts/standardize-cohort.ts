@@ -16,8 +16,6 @@
  *
  *   # Optional:
  *   #   --manifest <path>        (defaults to photos-dir/manifest.json)
- *   #   --allow-generative-deid  (include images that needed the generative
- *   #                             de-id fallback; excluded by default)
  *   #   --force                  (re-standardize images already present)
  */
 
@@ -52,10 +50,7 @@ interface PreprocessedRecord {
   role: string;
   sourcePath: string;
   outputPath: string;
-  deIdMethod: "FaceApi" | "OpenAIFallback";
-  /** True when de-id fell back to the generative path, i.e. pixels were synthesized. */
-  generativeDeIdUsed: boolean;
-  fallbackReason?: string;
+  deIdMethod: "FaceApi";
   weeksAfter: number | null;
 }
 
@@ -118,7 +113,6 @@ async function main(): Promise<number> {
     return 1;
   }
 
-  const allowGenerative = args["allow-generative-deid"] === true;
   // Deterministic by default: no vision model, no API key, byte-reproducible.
   const aiGuided = args["ai-guided-standardization"] === true;
   const preprocessingVersion = aiGuided
@@ -136,7 +130,6 @@ async function main(): Promise<number> {
 
   const records: PreprocessedRecord[] = [];
   const skipped: Array<{ folder: string; relativePath?: string; reason: string }> = [];
-  let generativeCount = 0;
 
   for (const cohort of manifest.cohorts) {
     const actualFolder = folderIdx.get(cohort.folder.trim());
@@ -171,29 +164,7 @@ async function main(): Promise<number> {
 
       try {
         const rawBase64 = fs.readFileSync(sourcePath).toString("base64");
-        const deid = await deIdentifyWithFallback(rawBase64, {
-          allowGenerativeFallback: allowGenerative,
-        });
-        const generative = deid.method === "OpenAIFallback";
-
-        if (generative) {
-          generativeCount++;
-          if (!allowGenerative) {
-            // The generative fallback synthesizes a portrait. Predicting age
-            // from invented pixels is not a measurement of this patient, so
-            // these are excluded unless explicitly opted in.
-            skipped.push({
-              folder: cohort.folder,
-              relativePath: photo.relativePath,
-              reason: `generative_deid_fallback (${deid.fallbackReason ?? "unknown"})`,
-            });
-            console.warn(
-              `EXCLUDE ${cohort.folder}/${path.basename(sourcePath)} — de-id fell back to the ` +
-                "generative path; pixels would be synthesized. Pass --allow-generative-deid to override.",
-            );
-            continue;
-          }
-        }
+        const deid = await deIdentifyWithFallback(rawBase64);
 
         const standardized = await standardizePhoto(
           deid.processedImageBase64,
@@ -210,8 +181,6 @@ async function main(): Promise<number> {
           sourcePath,
           outputPath,
           deIdMethod: deid.method,
-          generativeDeIdUsed: generative,
-          fallbackReason: deid.fallbackReason,
           weeksAfter: photo.weeksAfter ?? null,
         });
 
@@ -232,11 +201,9 @@ async function main(): Promise<number> {
     generatedAt: new Date().toISOString(),
     sourceManifest: manifestPath,
     sourcePhotosDir: photosDir,
-    allowGenerativeDeId: allowGenerative,
     counts: {
       standardized: records.length,
       skipped: skipped.length,
-      generativeDeId: generativeCount,
     },
     records,
     skipped,
@@ -248,12 +215,6 @@ async function main(): Promise<number> {
   console.log(
     `\nStandardized ${records.length}, skipped ${skipped.length}. Manifest: ${outManifestPath}`,
   );
-  if (generativeCount > 0) {
-    console.log(
-      `${generativeCount} image(s) hit the generative de-id fallback` +
-        (allowGenerative ? " and were INCLUDED (--allow-generative-deid)." : " and were excluded."),
-    );
-  }
 
   return skipped.length > 0 ? 2 : 0;
 }
