@@ -1,4 +1,4 @@
-# Frozen cohort reference
+# Frozen Cohort Reference
 
 `cohort-reference.json` holds the fixed per-domain mean/sd and composite
 distribution that every scored pair is standardized against. The server loads
@@ -38,7 +38,7 @@ python3 scripts/compute_improvement_score.py \
     --csv scripts/results.csv --reference scripts/reference/cohort-reference.json
 ```
 
-## The shipped reference
+## The Shipped Reference
 
 `cohort-reference.json` is built from a 134-pair clinical cohort (65 subjects,
 IRB-approved), scored with `claude-opus-4-5-20251101` under rubric 1.1.0 and
@@ -48,7 +48,7 @@ scoring on.
 It contains only aggregate statistics plus 134 unlabelled composite scores. No
 subject identifiers of any kind.
 
-### What validation found
+### What Validation Found
 
 See `validation-report.json` (redacted summary).
 
@@ -67,7 +67,7 @@ the `positionBiasAge` column.
 Uncorrected, this bias inflates every metric in the improvement direction, and
 "after" is always the second image.
 
-### Interpreting ΔAge from this cohort
+### Interpreting ΔAge From This Cohort
 
 Counterbalanced, the cohort mean is **-1.16 years** (median -0.5, SD 2.78);
 54% of pairs scored younger, 16% unchanged, 31% older. An earlier uncorrected
@@ -78,7 +78,7 @@ de-identified, standardized inputs.
 Given a 0.29-year noise floor, individual differences under ~0.5 years should
 not be read as real.
 
-## Before trusting any of it
+## Before Trusting Any of It
 
 ```bash
 python3 scripts/validate_pipeline.py \

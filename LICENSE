@@ -1,21 +1,81 @@
-MIT License
+Nexus Academic and Non-Commercial License
+Version 1.0
 
-Copyright (c) 2026 Orr Shauly
+Copyright (c) 2026 Orr Shauly. All rights reserved.
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+This is NOT an open source license. Commercial use is not permitted without a
+separate written agreement.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. DEFINITIONS
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+   "Software" means this repository and its contents, including source code,
+   documentation, the cohort reference file, and any derivative works.
+
+   "Non-Commercial Use" means use for academic research, teaching, personal
+   study, evaluation, or publication of research findings, where the use is not
+   intended for or directed toward commercial advantage or monetary
+   compensation.
+
+   "Commercial Use" means any use intended for or directed toward commercial
+   advantage or monetary compensation, including but not limited to: use in or
+   by a for-profit entity; incorporation into a product or service offered for
+   sale, subscription, or fee; use in providing paid clinical, diagnostic,
+   cosmetic, or consulting services; use in marketing or advertising; and use
+   in fee-generating clinical practice.
+
+2. GRANT FOR NON-COMMERCIAL USE
+
+   Subject to the terms below, you are granted a worldwide, royalty-free,
+   non-exclusive, non-transferable license to use, copy, modify, and distribute
+   the Software for Non-Commercial Use.
+
+3. CONDITIONS
+
+   a. This license and copyright notice must be included in all copies or
+      substantial portions of the Software.
+
+   b. Modified versions must be clearly marked as modified and must not be
+      represented as the original.
+
+   c. Academic publications and presentations that use the Software, its
+      outputs, or its cohort reference should cite this repository.
+
+   d. Distribution of the Software or derivative works may only be under the
+      terms of this license.
+
+4. COMMERCIAL USE
+
+   Commercial Use requires a separate written licensing agreement with the
+   copyright holder. No Commercial Use rights are granted by this license.
+
+   To enquire about commercial licensing, contact the copyright holder through
+   the repository at https://github.com/Kilment/nexus-face.
+
+5. NOT A MEDICAL DEVICE
+
+   The Software is exploratory research tooling. It has no regulatory clearance
+   or approval, has not been validated for diagnostic or treatment decisions,
+   and its outputs are model estimates of appearance rather than measurements
+   of tissue or clinical outcome. It must not be used as the basis for clinical
+   decisions.
+
+   Any use involving human-subject data is the sole responsibility of the user,
+   who must obtain all required ethics, IRB, privacy, and regulatory approvals.
+
+6. NO WARRANTY
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE, ACCURACY, AND NONINFRINGEMENT.
+
+7. LIMITATION OF LIABILITY
+
+   IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES, OR
+   OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT, OR OTHERWISE,
+   ARISING FROM, OUT OF, OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+   DEALINGS IN THE SOFTWARE.
+
+8. TERMINATION
+
+   This license terminates automatically if you breach any of its terms. Upon
+   termination you must cease all use and destroy all copies.

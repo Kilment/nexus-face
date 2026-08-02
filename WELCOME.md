@@ -1,13 +1,17 @@
-# Welcome — Running Nexus On Your Own Photos
+# Welcome — Running Nexus on Your Own Photos
 
 This guide takes you from a fresh fork to scored before/after pairs.
+
+> **Licensing:** free for academic and non-commercial use. Commercial use —
+> including fee-generating clinical practice or any for-profit setting —
+> requires a separate agreement. See [LICENSE](LICENSE).
 
 Read the [terminology note](#one-thing-to-be-clear-about-first) before you start —
 it determines what this pipeline can and cannot tell you.
 
 ---
 
-## One thing to be clear about first
+## One Thing to Be Clear About First
 
 **This pipeline does not train a model on your photos.** No weights are fitted,
 and nothing learns from your images. Every score comes from a vision model
@@ -50,7 +54,7 @@ cp .env.example .env.local   # then add your Anthropic API key
 
 ---
 
-## 2. How to photograph
+## 2. How to Photograph
 
 Everything downstream inherits the quality of this step. The pipeline
 normalizes lighting and framing, but it cannot recover information the photo
@@ -87,7 +91,7 @@ filters or portrait-mode skin smoothing, and heavy compression.
 
 ---
 
-## 3. How to organize photos
+## 3. How to Organize Photos
 
 One folder per subject. Any folder name works — a study ID, a pseudonymous
 code, anything you can trace back through your own records.
@@ -115,7 +119,7 @@ Keep your photo directory **outside the repo**, or inside it at a path the
 
 ---
 
-## 4. How to tag photos: `manifest.json`
+## 4. How to Tag Photos: `manifest.json`
 
 The manifest sits at the top of your photo directory and declares which image
 is the baseline and which are follow-ups. Copy
@@ -159,12 +163,12 @@ distinct `folder` values. One baseline per cohort is a hard requirement.
 
 ---
 
-## 5. Score your pairs
+## 5. Score Your Pairs
 
 **A validated reference already ships with this repo**, so you can score pairs
 immediately without building anything.
 
-### Option A — use the shipped reference (start here)
+### Option A — Use the Shipped Reference (Start Here)
 
 ```bash
 # 1. Canonical preprocessing (de-identify -> 512x512). No API key needed.
@@ -196,7 +200,7 @@ returns `N/A` with the mismatch named. The defaults already match; you only
 break this by overriding `COHORT_VISION_MODEL` or passing
 `--ai-guided-standardization`.
 
-### Option B — build your own reference
+### Option B — Build Your Own Reference
 
 ```bash
 scripts/build-reference.sh /path/to/my-photos
@@ -219,7 +223,7 @@ being comparable.
 
 ---
 
-## 6. Validate before you trust it
+## 6. Validate Before You Trust It
 
 ```bash
 python3 scripts/validate_pipeline.py \
@@ -241,7 +245,7 @@ that every future score is measured against.
 
 ---
 
-## 7. What you get
+## 7. What You Get
 
 Per pair, with **no reference required**:
 
@@ -266,7 +270,7 @@ regions is a different measurement and is not comparable to the reference.
 
 ---
 
-## 8. Reading the output honestly
+## 8. Reading the Output Honestly
 
 **`N/A` means not determined.** It is never zero, and never a default. If a
 value could not be established, every layer reports `N/A` and states why. Treat
@@ -291,7 +295,7 @@ and its outputs are model estimates of *appearance*, not measurements of tissue.
 
 ---
 
-## 9. Handling patient data
+## 9. Handling Patient Data
 
 - Keep photo directories **outside the repo**, or at an ignored path.
 - Use **opaque study IDs**. No MRNs, names, initials, or dates of service in
@@ -324,7 +328,7 @@ and its outputs are model estimates of *appearance*, not measurements of tissue.
 
 ---
 
-## Where to go next
+## Where to Go Next
 
 - [`README.md`](README.md) — architecture and repository layout
 - [`scripts/reference/README.md`](scripts/reference/README.md) — why the reference is frozen

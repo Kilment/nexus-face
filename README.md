@@ -11,9 +11,12 @@ organize, and tag your images, then run the pipeline.
 > clearance, not validated for diagnosis or treatment decisions. Outputs are
 > model estimates of *appearance*, not measurements of tissue.
 
+> **Free for academic and non-commercial use.** Commercial use requires a
+> licensing agreement — see [License](#license).
+
 ---
 
-## What it does
+## What It Does
 
 A pair of photographs goes through de-identification, standardization to
 512×512, and pairwise lighting harmonization. A vision model then scores the
@@ -45,7 +48,7 @@ built and what validation found.
 
 ---
 
-## Design principles
+## Design Principles
 
 **Nothing is fabricated.** Any value that cannot be determined is reported as
 `N/A`, never as `0` and never as a default. This holds end to end: absent
@@ -108,7 +111,7 @@ migrations/      Drizzle SQL migrations
 
 ---
 
-## Quick start
+## Quick Start
 
 ```bash
 npm install
@@ -120,7 +123,7 @@ scripts/build-reference.sh /path/to/photos
 
 Full walkthrough, including photo requirements: [WELCOME.md](WELCOME.md).
 
-### Mobile app
+### Mobile App
 
 ```bash
 npm run db:push        # apply migrations
@@ -167,7 +170,7 @@ WASM is slower but runs on every supported Node version.
 
 ---
 
-## Handling patient data
+## Handling Patient Data
 
 Photographs of faces are HIPAA-enumerated identifiers, and masking eyes is not
 a recognized de-identification method. Before running this on patient
@@ -187,6 +190,15 @@ See [WELCOME.md §9](WELCOME.md#9-handling-patient-data).
 
 ## License
 
-[MIT](LICENSE). Note the warranty disclaimer: this is exploratory research
-tooling, not a medical device, and carries no fitness guarantee for clinical
-use.
+**Free for academic and non-commercial use. Commercial use requires a
+licensing agreement.** See [LICENSE](LICENSE).
+
+This is not an open source license. You may use, modify, and share the Software
+for academic research, teaching, personal study, and publication of findings.
+Any use directed toward commercial advantage — including within a for-profit
+entity, in a product or service offered for a fee, or in fee-generating
+clinical practice — needs a separate written agreement. Open an issue to
+enquire.
+
+Note the warranty disclaimer: this is exploratory research tooling, not a
+medical device, and carries no fitness guarantee for clinical use.

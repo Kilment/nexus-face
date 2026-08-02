@@ -3,7 +3,7 @@
   "main": "client/index.js",
   "version": "1.0.0",
   "description": "Quantifies apparent facial change between pre- and post-intervention photographs: predicted age, wrinkle severity by anatomic sub-region, perceived volume and jawline. Exploratory research tooling, not a medical device.",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "author": "Orr Shauly",
   "repository": {
     "type": "git",
