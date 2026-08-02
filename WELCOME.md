@@ -42,8 +42,8 @@ contents deliberately.
 ```bash
 git clone <your-fork> && cd nexus-face
 npm install
-pip install --break-system-packages anthropic pillow numpy
-cp .env.example .env.local   # then fill in your keys
+python3 -m pip install --user anthropic pillow numpy
+cp .env.example .env.local   # then add your Anthropic API key
 ```
 
 `.env.local` is gitignored. Never commit real keys.
@@ -159,9 +159,44 @@ distinct `folder` values. One baseline per cohort is a hard requirement.
 
 ---
 
-## 5. Build your reference
+## 5. Score your pairs
 
-One command runs all four stages:
+**A validated reference already ships with this repo**, so you can score pairs
+immediately without building anything.
+
+### Option A — use the shipped reference (start here)
+
+```bash
+# 1. Canonical preprocessing (de-identify -> 512x512). No API key needed.
+npx tsx scripts/standardize-cohort.ts \
+    --photos-dir /path/to/my-photos \
+    --out-dir /path/to/my-photos_standardized
+
+# 2. Score each pair
+python3 scripts/score_pairs.py \
+    --standardized-dir /path/to/my-photos_standardized \
+    --out results.csv
+
+# 3. Express the results against the shipped reference
+python3 scripts/compute_improvement_score.py \
+    --csv results.csv \
+    --reference scripts/reference/cohort-reference.json
+```
+
+That yields full z-scores, composites and percentiles — even for a single pair.
+
+The shipped reference was built from 134 pairs across 65 subjects in a clinical
+cohort. Your patients are therefore scored **relative to that population**. If
+yours differs materially — different procedure, age range, or population — the
+percentiles will be misleading even though the raw measurements stay valid.
+In that case build your own (Option B).
+
+Your model and preprocessing must match the reference, or every composite
+returns `N/A` with the mismatch named. The defaults already match; you only
+break this by overriding `COHORT_VISION_MODEL` or passing
+`--ai-guided-standardization`.
+
+### Option B — build your own reference
 
 ```bash
 scripts/build-reference.sh /path/to/my-photos
@@ -170,18 +205,17 @@ scripts/build-reference.sh /path/to/my-photos
 | Stage | What happens |
 |---|---|
 | 1. Preprocess | De-identify, then standardize to 512×512 |
-| 2. Score | Each pair scored against rubric v1.1 |
+| 2. Score | Each pair scored against rubric v1.1, counterbalanced |
 | 3. Freeze | Cohort mean/SD captured into `scripts/reference/cohort-reference.json` |
 | 4. Apply | Reference applied back to the results CSV |
 
 **Minimum cohort size is 30 pairs.** Below that the script refuses: a reference
 built on a handful of pairs produces unstable z-scores that look authoritative
-and aren't. If you have fewer, you can still get every raw measurement (§7) —
-you just won't get the standardized composite.
+and aren't. With fewer, use Option A, or take the raw measurements only (§7).
 
-Rebuilding an existing reference prompts before overwriting and keeps a
-timestamped backup, because rebuilding invalidates every score previously
-reported against it.
+This **overwrites the shipped reference**, so it prompts first and keeps a
+timestamped backup. Every score previously reported against the old one stops
+being comparable.
 
 ---
 

@@ -35,8 +35,13 @@ after.jpg  ─┘                                              │
                                                           z-scores → composite → percentile
 ```
 
-Absolute measurements need no reference. The standardized scores do — see
-[scripts/reference/README.md](scripts/reference/README.md).
+Absolute measurements need no reference. The standardized scores do — and
+**a validated reference ships with this repo**, so a fork produces working
+z-scores, composites and percentiles on the first pair, with no cohort of its
+own. It was built from 134 pairs across 65 subjects (IRB-approved), contains
+only aggregate statistics and unlabelled scores, and carries no identifiers.
+See [scripts/reference/README.md](scripts/reference/README.md) for how it was
+built and what validation found.
 
 ---
 
@@ -107,8 +112,8 @@ migrations/      Drizzle SQL migrations
 
 ```bash
 npm install
-pip install --break-system-packages anthropic pillow numpy
-cp .env.example .env.local        # add your API keys
+python3 -m pip install --user anthropic pillow numpy
+cp .env.example .env.local        # add your Anthropic API key
 
 scripts/build-reference.sh /path/to/photos
 ```
